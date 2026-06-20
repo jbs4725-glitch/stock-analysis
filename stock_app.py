@@ -214,6 +214,35 @@ def extract_stmt(stmt, label):
             ys.append(label(c)); rev.append(g(sr,c)); op.append(g(so,c)); ni.append(g(sn,c))
     return ys,rev,op,ni
 
+def tech(code):
+    """RSI(14)·20/60일선 교차·52주 위치 계산."""
+    try:
+        end=dt.date.today(); start=end-dt.timedelta(days=430)
+        c=fdr.DataReader(code,start.isoformat(),end.isoformat())["Close"].astype(float).dropna()
+        if len(c)<30: return None
+        d=c.diff(); up=d.clip(lower=0).rolling(14).mean(); dn=(-d.clip(upper=0)).rolling(14).mean()
+        rsi=float((100-100/(1+up/dn.replace(0,np.nan))).iloc[-1])
+        ms=float(c.rolling(20).mean().iloc[-1]); ml=float(c.rolling(60).mean().iloc[-1])
+        w=c.tail(252); hi=float(w.max()); lo=float(w.min()); cur=float(c.iloc[-1])
+        pos=(cur-lo)/(hi-lo)*100 if hi>lo else 50.0
+        return {"rsi":rsi,"cross":ms>=ml,"pos":pos,"hi":hi,"lo":lo,"cur":cur}
+    except Exception: return None
+
+_MKT={"t":0.0,"d":[]}
+MKT_SYMS=[("KS11","코스피"),("KQ11","코스닥"),("USD/KRW","원/달러"),("US500","S&P500"),("IXIC","나스닥")]
+def market():
+    import time
+    if _MKT["d"] and time.time()-_MKT["t"]<600: return _MKT["d"]
+    out=[]; start=(dt.date.today()-dt.timedelta(days=12)).isoformat()
+    for sym,nm in MKT_SYMS:
+        try:
+            df=fdr.DataReader(sym,start).dropna(subset=["Close"])
+            last=float(df["Close"].iloc[-1]); prev=float(df["Close"].iloc[-2]) if len(df)>=2 else last
+            out.append((nm,last,(last/prev-1)*100 if prev else 0.0))
+        except Exception: pass
+    if out: _MKT["t"]=time.time(); _MKT["d"]=out
+    return out
+
 CSS="""
 <meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover'>
 <meta name='apple-mobile-web-app-capable' content='yes'>
@@ -253,7 +282,15 @@ th{background:#2563B0;color:#fff} tr:nth-child(even) td{background:#F4F7FB}
   table{font-size:12px} th,td{padding:6px 5px} .sec{font-size:14px}
   .ex{display:block;text-align:center}
 }
-</style>"""
+</style>
+<script>
+function _favs(){try{return JSON.parse(localStorage.getItem('favs')||'[]')}catch(e){return[]}}
+function addFav(code,name){var f=_favs();if(!f.some(function(x){return x.code===code})){f.push({code:code,name:name});localStorage.setItem('favs',JSON.stringify(f));}renderFavs();alert(name+' ⭐ 즐겨찾기 추가됨');}
+function delFav(code){localStorage.setItem('favs',JSON.stringify(_favs().filter(function(x){return x.code!==code})));renderFavs();}
+function renderFavs(){var el=document.getElementById('favbox');if(!el)return;var f=_favs();if(!f.length){el.innerHTML="<span class='muted'>아직 없음 — 분석 화면에서 ⭐ 추가</span>";return;}el.innerHTML=f.map(function(x){return "<span class='ex' style='display:inline-flex;align-items:center;gap:5px'><a href='/analyze?code="+encodeURIComponent(x.code)+"'>"+x.name+"</a> <a href='#' onclick='delFav(\""+x.code+"\");return false;' style='color:#C0392B;text-decoration:none'>✕</a></span>"}).join('');}
+function loadMarket(){var el=document.getElementById('mktbox');if(!el)return;fetch('/market').then(function(r){return r.text()}).then(function(h){el.innerHTML=h}).catch(function(){el.innerHTML="<span class='muted'>시장지표 불러오기 실패</span>"});}
+document.addEventListener('DOMContentLoaded',function(){try{renderFavs()}catch(e){}try{loadMarket()}catch(e){}});
+</script>"""
 
 def form_html(code="",ma="30",months="18"):
     def opt(v,cur): return f"<option value='{v}'{' selected' if str(v)==str(cur) else ''}>{v}</option>"
@@ -280,10 +317,13 @@ def home():
     return f"""<!doctype html><html lang='ko'>{CSS}<body><div class='top'><div class='wrap' style='padding:0'>
       <h1>📈 주식 분석 (HTML)</h1><p>종목·이격일수·기간을 바꿔가며 인터랙티브 차트로 분석 · 실행 시 최신 데이터</p></div></div>
       <div class='wrap'>{form_html()}
-      {phone}
+      <div class='card'><b>🌐 시장지표 (실시간)</b><div id='mktbox' style='margin-top:6px'><span class='muted'>불러오는 중…</span></div></div>
       <div class='card'><b>🔥 추천 종목 (탭하면 바로 분석)</b><br><div style='margin-top:6px'>{ex}</div></div>
+      <div class='card'><b>⭐ 즐겨찾기</b><div id='favbox' style='margin-top:6px'></div></div>
+      <div class='card'><b>🔁 종목 비교 (2~3개)</b>{compare_form()}</div>
+      {phone}
       <div class='note'>이름 <b>일부만</b> 입력해도 검색됩니다(예: "삼성"·"하이닉스"). 한국=6자리코드·미국=티커도 가능. 데이터: FinanceDataReader·yfinance(한글뉴스: 구글뉴스). 투자 권유 아님.</div>
-      <div class='foot'>주식 분석 웹앱 · 로컬 실행</div></div></body></html>"""
+      <div class='foot'>주식 분석 웹앱</div></div></body></html>"""
 
 @app.route("/manifest.webmanifest")
 def manifest():
@@ -291,6 +331,60 @@ def manifest():
     m={"name":"주식 분석","short_name":"주식분석","start_url":"/","scope":"/","display":"standalone",
        "background_color":"#F4F7FB","theme_color":"#16243F","lang":"ko","icons":[]}
     return Response(_j.dumps(m,ensure_ascii=False),mimetype="application/manifest+json")
+
+@app.route("/market")
+def market_frag():
+    m=market()
+    if not m: return "<span class='muted'>시장지표 불러오기 실패(잠시 후 새로고침)</span>"
+    def cell(nm,v,ch):
+        col="#C0392B" if ch<0 else "#1E7E45"; ar="▲" if ch>0 else ("▼" if ch<0 else "·")
+        return f"<div style='flex:1;min-width:84px;text-align:center;padding:6px 4px'><div class='muted'>{esc(nm)}</div><div style='font-weight:bold;font-size:14px'>{v:,.0f}</div><div style='color:{col};font-size:12px'>{ar}{abs(ch):.2f}%</div></div>"
+    return "<div style='display:flex;flex-wrap:wrap'>"+"".join(cell(*x) for x in m)+"</div>"
+
+def compare_form(codes=""):
+    return (f"<form class='bar' action='/compare' method='get'><div style='flex:1 1 240px'>"
+            f"<label>비교 종목 2~3개 (쉼표/공백 구분, 이름 일부 OK)</label>"
+            f"<input type='text' name='codes' value='{esc(codes)}' placeholder='삼성, 하이닉스, 엔비디아' list='codes'></div>"
+            f"<button type='submit'>비교</button></form>")
+
+@app.route("/compare")
+def compare():
+    raw=(request.args.get("codes") or "").strip()
+    codes=[]
+    for t in re.split(r"[,\s]+",raw):
+        if t.strip():
+            c=resolve_code(t.strip())
+            if c and c not in codes: codes.append(c)
+    codes=codes[:3]; form=compare_form(raw)
+    dl="".join(f"<option value='{esc(nm)}'>{esc(c)}</option>" for nm,c in CURATED.items())
+    form=form+f"<datalist id='codes'>{dl}</datalist>"
+    head_html=f"<!doctype html><html lang='ko'>{CSS}<body><div class='top'><div class='wrap' style='padding:0'><h1>🔁 종목 비교</h1></div></div><div class='wrap'>{form}"
+    if not codes:
+        return head_html+"<div class='note'>비교할 종목을 2~3개 입력하세요(쉼표/공백 구분). 예: 삼성, 하이닉스, 엔비디아</div></div></body></html>"
+    cols=[]
+    for code in codes:
+        kr=is_kr(code); cur=disp=None
+        try:
+            d,p,mm,dp=get_prices(code,30,6); cur=float(p[-1]); disp=float(dp[-1])
+        except Exception: pass
+        info,_,_,_=fetch_meta(code); nm=disp_name(code,info)
+        px=info.get("currentPrice") or info.get("regularMarketPrice") or cur
+        hi=info.get("fiftyTwoWeekHigh"); lo=info.get("fiftyTwoWeekLow")
+        pos=((px-lo)/(hi-lo)*100) if (px and hi and lo and hi>lo) else None
+        cols.append({"code":code,"nm":nm,"kr":kr,"px":px,"disp":disp,"per":info.get("trailingPE"),
+                     "fper":info.get("forwardPE"),"pbr":info.get("priceToBook"),"mc":info.get("marketCap"),
+                     "dy":info.get("dividendYield"),"pos":pos})
+    def row(label,fn): return "<tr><td>"+label+"</td>"+"".join("<td>"+fn(c)+"</td>" for c in cols)+"</tr>"
+    head="<tr><th>지표</th>"+"".join(f"<th>{esc(c['nm'])}<br><span style='font-weight:normal;font-size:11px'>{esc(c['code'])}</span></th>" for c in cols)+"</tr>"
+    body=(row("현재가",lambda c:(f"{c['px']:,.0f}"+('원' if c['kr'] else '$')) if c['px'] else '-')
+        +row("30일 이격도",lambda c:(f"{c['disp']:.1f}%") if c['disp'] is not None else '-')
+        +row("PER 후/선",lambda c:f"{num(c['per'])}/{num(c['fper'])}")
+        +row("PBR",lambda c:num(c['pbr']))
+        +row("시가총액",lambda c:fmt(c['mc'],c['kr']))
+        +row("배당%",lambda c:(f"{c['dy']*100:.2f}%") if c['dy'] else '-')
+        +row("52주 위치",lambda c:(f"{c['pos']:.0f}%") if c['pos'] is not None else '-'))
+    links="".join(f"<a class='ex' href='/analyze?code={c['code']}'>{esc(c['nm'])} 상세</a>" for c in cols)
+    return head_html+f"<div class='card'><table>{head}{body}</table></div><div class='card'>{links}</div><div class='note warn'>실시간 자동 산출 · 한국주는 일부 '-' 가능 · 투자 권유 아님.</div></div></body></html>"
 
 @app.route("/analyze")
 def analyze():
@@ -325,17 +419,22 @@ def analyze():
       <tr><td>배당수익률</td><td>{(f'{dy*100:.2f}%') if dy else '-'}</td></tr>
       <tr><td>{ma}일 이격도</td><td><b>{curdisp:.1f}%</b></td></tr></table>"""
     # 재무표/차트
-    def fin_rows(labels,r,o,n,unit_label):
-        rows="".join(f"<tr{' class=hl' if i==len(labels)-1 else ''}><td>{x}</td><td>{fmt(r[i],kr)}</td><td>{fmt(o[i],kr)}</td><td>{fmt(n[i],kr)}</td><td>{(f'{o[i]/r[i]*100:.1f}%') if (o[i] and r[i]) else '-'}</td></tr>" for i,x in enumerate(labels))
-        return f"<table><tr><th>{unit_label}</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th></tr>{rows}</table>"
+    def fin_rows(labels,r,o,n,unit_label,yoy_lag=0):
+        def yoy(i):
+            j=i-yoy_lag
+            if yoy_lag and 0<=j and r[i] and r[j]: return f"{(r[i]/r[j]-1)*100:+.0f}%"
+            return "-"
+        yh="<th>매출 전년比</th>" if yoy_lag else ""
+        rows="".join(f"<tr{' class=hl' if i==len(labels)-1 else ''}><td>{x}</td><td>{fmt(r[i],kr)}</td><td>{fmt(o[i],kr)}</td><td>{fmt(n[i],kr)}</td><td>{(f'{o[i]/r[i]*100:.1f}%') if (o[i] and r[i]) else '-'}</td>{('<td>'+yoy(i)+'</td>') if yoy_lag else ''}</tr>" for i,x in enumerate(labels))
+        return f"<table><tr><th>{unit_label}</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th>{yh}</tr>{rows}</table>"
     fin_html="<div class='note'>재무 데이터를 가져오지 못했습니다(일부 한국주). DART/IR 확인 권장.</div>"
     if years:
-        fin_html=fin_rows(years,rev,op,ni,"연도")+fig_fin(years,rev,op,ni,kr,"연간 추이")
-    # 분기별
+        fin_html=fin_rows(years,rev,op,ni,"연도",1)+fig_fin(years,rev,op,ni,kr,"연간 추이")
+    # 분기별 (YoY=전년 동분기 대비, 4분기 전)
     q_html=""
     if qy:
-        q_html=("<div class='sec' style='font-size:13px;margin:14px 0 6px'>📅 분기별 실적 (최근 "+str(len(qy))+"개 분기)</div>"
-                + fin_rows(qy,qr,qo,qn,"분기")
+        q_html=("<div class='sec' style='font-size:13px;margin:14px 0 6px'>📅 분기별 실적 (최근 "+str(len(qy))+"개 분기, 전년동기比)</div>"
+                + fin_rows(qy,qr,qo,qn,"분기",4)
                 + fig_fin(qy,qr,qo,qn,kr,"분기 추이"))
     else:
         q_html="<div class='note' style='margin-top:12px'>분기 데이터 미제공(일부 한국주). DART 분기보고서 확인 권장.</div>"
@@ -357,16 +456,52 @@ def analyze():
       <tr><td>이익 성장(5Y)</td><td>{star(bool(g_op))}</td><td>{'영업이익 개선' if g_op else '확인 필요'}</td></tr>
       <tr><td>밸류(PER)</td><td>{star(True if val else (None if per is None else False))}</td><td>PER {num(per)}</td></tr>
       <tr><td>이격도 위치</td><td>{star(True if dok else False)}</td><td>{curdisp:.1f}% ({'안정권' if dok else '과열경계'})</td></tr></table>"""
+    # 기술지표
+    t=tech(code)
+    if t:
+        rsi=t["rsi"]; rstate="과매수(70↑)" if rsi>70 else ("과매도(30↓)" if rsi<30 else "중립")
+        tech_html=(f"<table class='kpi'><tr><td>RSI(14)</td><td><b>{rsi:.0f}</b> · {rstate}</td></tr>"
+                   f"<tr><td>20/60일선</td><td>{'▲ 골든크로스(단기>장기)' if t['cross'] else '▼ 데드크로스(단기<장기)'}</td></tr>"
+                   f"<tr><td>52주 위치</td><td><b>{t['pos']:.0f}%</b> (저 {t['lo']:,.0f} ~ 고 {t['hi']:,.0f})</td></tr></table>")
+    else: tech_html="<div class='muted'>기술지표 계산 불가</div>"
+    # 애널리스트 컨센서스
+    KMAP={"strong_buy":"적극매수","buy":"매수","outperform":"비중확대","hold":"중립","underperform":"비중축소","sell":"매도","strong_sell":"적극매도","none":"-"}
+    rk=info.get("recommendationKey"); na=info.get("numberOfAnalystOpinions")
+    th=info.get("targetHighPrice"); tl=info.get("targetLowPrice"); tm=info.get("targetMeanPrice")
+    if (rk and rk!="none") or tm or na:
+        cons_html=(f"<table class='kpi'><tr><td>투자의견</td><td><b>{KMAP.get(rk,rk or '-')}</b></td></tr>"
+                   f"<tr><td>평균 목표가</td><td>{(f'{tm:,.0f}'+unit) if tm else '-'}</td></tr>"
+                   f"<tr><td>목표가 범위</td><td>{(f'{tl:,.0f} ~ {th:,.0f}'+unit) if (tl and th) else '-'}</td></tr>"
+                   f"<tr><td>애널리스트 수</td><td>{na or '-'}</td></tr></table>")
+    else: cons_html="<div class='muted'>컨센서스 미제공(한국주는 자주 비어 있음). 증권사 리포트 확인 권장.</div>"
+    # 배당
+    dy=info.get("dividendYield"); drate=info.get("dividendRate"); po=info.get("payoutRatio"); exd=info.get("exDividendDate")
+    exs="-"
+    if exd:
+        try: exs=dt.datetime.fromtimestamp(int(exd),dt.timezone.utc).strftime("%Y-%m-%d")
+        except Exception: exs="-"
+    if dy or drate:
+        div_html=(f"<table class='kpi'><tr><td>배당수익률</td><td><b>{(f'{dy*100:.2f}%') if dy else '-'}</b></td></tr>"
+                  f"<tr><td>주당 배당금</td><td>{(f'{drate:,.0f}'+unit) if drate else '-'}</td></tr>"
+                  f"<tr><td>배당성향</td><td>{(f'{po*100:.0f}%') if po else '-'}</td></tr>"
+                  f"<tr><td>배당락일</td><td>{exs}</td></tr></table>")
+    else: div_html="<div class='muted'>배당 정보 없음(무배당이거나 미제공).</div>"
+    fav_btn=(f"<button onclick=\"addFav('{esc(code)}','{esc(name)}')\" style='background:#C9A227'>⭐ 즐겨찾기</button> "
+             f"<a class='ex' href='/compare?codes={esc(code)}' style='padding:10px 14px'>🔁 비교</a>")
     summ=esc((info.get("longBusinessSummary") or "")[:700])
     sector=esc((info.get("sector") or "")+" · "+(info.get("industry") or ""))
     chart=fig_disparity(code,ma,d,p,mm,dp,name)
     return f"""<!doctype html><html lang='ko'>{CSS}<body>
     <div class='top'><div class='wrap' style='padding:0'><h1>{esc(name)} <span style='font-size:14px;color:#C7D6EC'>({esc(code)})</span></h1><p>{sector} · 생성 {dt.date.today()} · 투자권유 아님</p></div></div>
     <div class='wrap'>{form_html(code,ma,months)}
+      <div class='card' style='text-align:center'>{fav_btn}</div>
       <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}
         <div class='note'>{ma}일 이격도 <b>{curdisp:.1f}%</b> — 100 위=이평선 위(과열 경향)·아래=침체. 한국주는 PER/목표가가 '-'일 수 있음.</div></div>
       <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}</div>
+      <div class='sec'>📐 기술지표 (RSI·이평선·52주)</div><div class='card'>{tech_html}</div>
       <div class='sec'>💰 재무 추이 (연간 + 분기)</div><div class='card'>{fin_html}{q_html}</div>
+      <div class='sec'>🏦 애널리스트 컨센서스</div><div class='card'>{cons_html}</div>
+      <div class='sec'>💵 배당</div><div class='card'>{div_html}</div>
       <div class='sec'>🏢 사업 개요</div><div class='card'><div class='muted'>{summ or '(요약 없음)'}</div></div>
       <div class='sec'>📰 최근 뉴스 (계약·전망 단서)</div><div class='card'>{news_html}<div class='muted'>상세 계약·수주·가이던스는 공시(DART/SEC)·IR 원문 확인.</div></div>
       <div class='sec'>⭐ 자동 스코어카드 (룰 기반)</div><div class='card'>{score}</div>
