@@ -3,3 +3,6 @@ __pycache__/
 배포_HF.bat
 배포_HF실행.py
 배포_안내.txt
+
+배포_GitHub.bat
+배포_Render_안내.txt
