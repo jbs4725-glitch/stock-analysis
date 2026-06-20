@@ -134,12 +134,16 @@ def fetch_meta(code):
             if inf and (inf.get("shortName") or inf.get("marketCap")): info=inf; tkr=t; break
         except Exception: continue
     if tkr is None: tkr=yf.Ticker(code if not is_kr(code) else code+".KS")
-    inc=None; news=[]
+    inc=None; qinc=None; news=[]
     try: inc=tkr.income_stmt
     except Exception: pass
+    try: qinc=tkr.quarterly_income_stmt
+    except Exception:
+        try: qinc=tkr.quarterly_financials
+        except Exception: pass
     try: news=tkr.news or []
     except Exception: pass
-    return info,inc,news
+    return info,inc,qinc,news
 
 def get_prices(code,ma,months):
     today=dt.date.today(); start=today-dt.timedelta(days=int(months*30.5))
@@ -175,7 +179,7 @@ def fig_disparity(code,ma,d,p,mm,dp,name):
     return fig.to_html(include_plotlyjs="cdn",full_html=False,
                        config={"displayModeBar":False,"displaylogo":False,"responsive":True})
 
-def fig_fin(years,rev,op,ni,kr):
+def fig_fin(years,rev,op,ni,kr,title="5년 재무 추이"):
     div=1e12 if kr else 1e9; u="조원" if kr else "$B"
     def vals(s): return [ (round(v/div,1) if v else 0) for v in s]
     R,O,N=vals(rev),vals(op),vals(ni)
@@ -185,7 +189,7 @@ def fig_fin(years,rev,op,ni,kr):
     fig.add_bar(x=years,y=O,name="영업이익",marker_color="#2E7D32")
     fig.add_bar(x=years,y=N,name="순이익",marker_color="#EF6C00")
     fig.update_layout(barmode="group",template="plotly_white",height=300,
-                      title=dict(text=f"5년 재무 추이 (단위: {u})",font=dict(size=14)),
+                      title=dict(text=f"{title} (단위: {u})",font=dict(size=14)),
                       margin=dict(l=8,r=8,t=64,b=8),bargap=0.3,bargroupgap=0.06,
                       legend=dict(orientation="h",y=1.18,x=0.5,xanchor="center",font=dict(size=13)),
                       font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
@@ -193,6 +197,22 @@ def fig_fin(years,rev,op,ni,kr):
     fig.update_xaxes(tickfont=dict(size=13))
     return fig.to_html(include_plotlyjs=False,full_html=False,
                        config={"displayModeBar":False,"responsive":True})
+
+def extract_stmt(stmt, label):
+    """손익계산서(연간/분기)에서 (라벨, 매출, 영업이익, 순이익) 추출. 오래된→최신 순."""
+    ys=[];rev=[];op=[];ni=[]
+    if stmt is not None and not stmt.empty:
+        def pick(keys):
+            for k in keys:
+                if k in stmt.index: return stmt.loc[k]
+            return None
+        sr=pick(["Total Revenue","Operating Revenue"])
+        so=pick(["Operating Income","Total Operating Income As Reported"])
+        sn=pick(["Net Income","Net Income Common Stockholders"])
+        def g(s,c): return float(s[c]) if (s is not None and c in s and not np.isnan(s[c])) else None
+        for c in list(stmt.columns)[::-1]:
+            ys.append(label(c)); rev.append(g(sr,c)); op.append(g(so,c)); ni.append(g(sn,c))
+    return ys,rev,op,ni
 
 CSS="""
 <meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover'>
@@ -284,22 +304,13 @@ def analyze():
         if len(d)<2: raise ValueError("데이터 부족")
     except Exception as e:
         return f"<!doctype html><html>{CSS}<body><div class='top'><div class='wrap' style='padding:0'><h1>📈 주식 분석</h1></div></div><div class='wrap'>{form_html(code,ma,months)}<div class='note warn'>‼ '{esc(code)}' 데이터를 가져오지 못했습니다. 종목코드를 확인하세요(한국=6자리, 미국=티커). ({esc(e)})</div></div></body></html>"
-    info,inc,news=fetch_meta(code)
+    info,inc,qinc,news=fetch_meta(code)
     name=disp_name(code,info)
     cur=int(p[-1]); curdisp=float(dp[-1]); unit="원" if kr else "$"
-    # 재무
-    years=[];rev=[];op=[];ni=[]
-    if inc is not None and not inc.empty:
-        def pick(keys):
-            for k in keys:
-                if k in inc.index: return inc.loc[k]
-            return None
-        sr=pick(["Total Revenue","Operating Revenue"]);so=pick(["Operating Income","Total Operating Income As Reported"]);sn=pick(["Net Income","Net Income Common Stockholders"])
-        for c in list(inc.columns)[::-1]:
-            years.append(str(c.year))
-            rev.append(float(sr[c]) if sr is not None and c in sr and not np.isnan(sr[c]) else None)
-            op.append(float(so[c]) if so is not None and c in so and not np.isnan(so[c]) else None)
-            ni.append(float(sn[c]) if sn is not None and c in sn and not np.isnan(sn[c]) else None)
+    # 재무(연간 + 분기)
+    years,rev,op,ni = extract_stmt(inc, lambda c: str(c.year))
+    qy,qr,qo,qn = extract_stmt(qinc, lambda c: f"{c.year}.{(c.month-1)//3+1}Q")
+    qy,qr,qo,qn = qy[-6:],qr[-6:],qo[-6:],qn[-6:]   # 최근 6개 분기
     # KPI
     mc=info.get("marketCap");per=info.get("trailingPE");fper=info.get("forwardPE");pbr=info.get("priceToBook")
     hi=info.get("fiftyTwoWeekHigh");lo=info.get("fiftyTwoWeekLow");tgt=info.get("targetMeanPrice");dy=info.get("dividendYield")
@@ -314,10 +325,20 @@ def analyze():
       <tr><td>배당수익률</td><td>{(f'{dy*100:.2f}%') if dy else '-'}</td></tr>
       <tr><td>{ma}일 이격도</td><td><b>{curdisp:.1f}%</b></td></tr></table>"""
     # 재무표/차트
+    def fin_rows(labels,r,o,n,unit_label):
+        rows="".join(f"<tr{' class=hl' if i==len(labels)-1 else ''}><td>{x}</td><td>{fmt(r[i],kr)}</td><td>{fmt(o[i],kr)}</td><td>{fmt(n[i],kr)}</td><td>{(f'{o[i]/r[i]*100:.1f}%') if (o[i] and r[i]) else '-'}</td></tr>" for i,x in enumerate(labels))
+        return f"<table><tr><th>{unit_label}</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th></tr>{rows}</table>"
     fin_html="<div class='note'>재무 데이터를 가져오지 못했습니다(일부 한국주). DART/IR 확인 권장.</div>"
     if years:
-        rows="".join(f"<tr{' class=hl' if i==len(years)-1 else ''}><td>{y}</td><td>{fmt(rev[i],kr)}</td><td>{fmt(op[i],kr)}</td><td>{fmt(ni[i],kr)}</td><td>{(f'{op[i]/rev[i]*100:.1f}%') if (op[i] and rev[i]) else '-'}</td></tr>" for i,y in enumerate(years))
-        fin_html=f"<table><tr><th>연도</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th></tr>{rows}</table>"+fig_fin(years,rev,op,ni,kr)
+        fin_html=fin_rows(years,rev,op,ni,"연도")+fig_fin(years,rev,op,ni,kr,"연간 추이")
+    # 분기별
+    q_html=""
+    if qy:
+        q_html=("<div class='sec' style='font-size:13px;margin:14px 0 6px'>📅 분기별 실적 (최근 "+str(len(qy))+"개 분기)</div>"
+                + fin_rows(qy,qr,qo,qn,"분기")
+                + fig_fin(qy,qr,qo,qn,kr,"분기 추이"))
+    else:
+        q_html="<div class='note' style='margin-top:12px'>분기 데이터 미제공(일부 한국주). DART 분기보고서 확인 권장.</div>"
     # 뉴스(한글: 구글뉴스 한국어 RSS) — 실패 시 yfinance(영문) 폴백
     knews=korean_news(name,6)
     if not knews:
@@ -345,7 +366,7 @@ def analyze():
       <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}
         <div class='note'>{ma}일 이격도 <b>{curdisp:.1f}%</b> — 100 위=이평선 위(과열 경향)·아래=침체. 한국주는 PER/목표가가 '-'일 수 있음.</div></div>
       <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}</div>
-      <div class='sec'>💰 5년 재무 추이</div><div class='card'>{fin_html}</div>
+      <div class='sec'>💰 재무 추이 (연간 + 분기)</div><div class='card'>{fin_html}{q_html}</div>
       <div class='sec'>🏢 사업 개요</div><div class='card'><div class='muted'>{summ or '(요약 없음)'}</div></div>
       <div class='sec'>📰 최근 뉴스 (계약·전망 단서)</div><div class='card'>{news_html}<div class='muted'>상세 계약·수주·가이던스는 공시(DART/SEC)·IR 원문 확인.</div></div>
       <div class='sec'>⭐ 자동 스코어카드 (룰 기반)</div><div class='card'>{score}</div>
