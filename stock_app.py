@@ -44,6 +44,69 @@ def qr_svg(url):
         b=io.BytesIO(); img.save(b); return b.getvalue().decode("utf-8")
     except Exception: return ""
 
+# ---------- 종목 추천/검색(부분 이름) ----------
+RECO=[("삼성전자","005930"),("SK하이닉스","000660"),("한미반도체","042700"),
+      ("삼성전기","009150"),("한화엔진","082740"),("엔비디아","NVDA"),
+      ("마이크론","MU"),("브로드컴","AVGO"),("TSMC","TSM"),("마벨","MRVL")]
+CURATED=dict(RECO+[
+  ("한화에어로스페이스","012450"),("LG에너지솔루션","373220"),("현대차","005380"),
+  ("기아","000270"),("네이버","035420"),("카카오","035720"),("셀트리온","068270"),
+  ("POSCO홀딩스","005490"),("LG화학","051910"),("삼성SDI","006400"),
+  ("현대모비스","012330"),("KB금융","105560"),("두산에너빌리티","034020"),
+  ("HD현대중공업","329180"),("한화오션","042660"),
+  ("애플","AAPL"),("마이크로소프트","MSFT"),("구글","GOOGL"),("아마존","AMZN"),
+  ("테슬라","TSLA"),("메타","META"),("AMD","AMD"),("오라클","ORCL"),
+  ("버티브","VRT"),("이튼","ETN"),("코히런트","COHR"),("암코","AMKR")])
+_KRX=None
+def krx():
+    global _KRX
+    if _KRX is None:
+        try:
+            df=fdr.StockListing("KRX")
+            _KRX={str(getattr(r,"Code")).zfill(6):str(getattr(r,"Name")) for r in df.itertuples()}
+        except Exception: _KRX={}
+    return _KRX
+def kr_name(code):
+    return krx().get(code) or code
+def disp_name(code, info):
+    for nm,c in CURATED.items():
+        if c==code: return nm
+    if re.fullmatch(r"\d{6}",code):
+        n=kr_name(code)
+        if n and n!=code: return n
+    return (info or {}).get("shortName") or (info or {}).get("longName") or code
+def resolve_code(q):
+    """코드/티커/이름 일부 → 종목코드. '삼성','하이' 같은 부분 입력도 검색."""
+    q=(q or "").strip()
+    if not q: return ""
+    if re.fullmatch(r"\d{6}",q): return q
+    if re.fullmatch(r"[A-Za-z.\-]{1,6}",q): return q.upper()
+    for nm,c in CURATED.items():           # 큐레이션 정확
+        if nm==q: return c
+    for nm,c in CURATED.items():           # 큐레이션 시작
+        if nm.startswith(q): return c
+    for nm,c in CURATED.items():           # 큐레이션 포함
+        if q in nm: return c
+    km=krx()                                # 전체 KRX 부분검색
+    for c,nm in km.items():
+        if nm==q: return c
+    cands=[(c,nm) for c,nm in km.items() if nm.startswith(q)] or [(c,nm) for c,nm in km.items() if q in nm]
+    if cands: cands.sort(key=lambda x:len(x[1])); return cands[0][0]
+    return q.upper()
+def korean_news(query, n=6):
+    """구글뉴스 한국어 RSS로 한글 헤드라인 추출."""
+    try:
+        import urllib.parse, urllib.request, xml.etree.ElementTree as ET
+        url="https://news.google.com/rss/search?q="+urllib.parse.quote((query or "")+" 주식")+"&hl=ko&gl=KR&ceid=KR:ko"
+        req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0"})
+        root=ET.fromstring(urllib.request.urlopen(req,timeout=10).read())
+        out=[]
+        for it in list(root.iter("item"))[:n]:
+            t=it.findtext("title"); l=it.findtext("link")
+            if t: out.append((t,l))
+        return out
+    except Exception: return []
+
 # ---------- 유틸 ----------
 def is_kr(c): return bool(re.fullmatch(r"\d{6}",c))
 def esc(s): return html.escape(str(s)) if s is not None else ""
@@ -90,31 +153,51 @@ def get_prices(code,ma,months):
 
 def fig_disparity(code,ma,d,p,mm,dp,name):
     fig=make_subplots(specs=[[{"secondary_y":True}]])
-    fig.add_trace(go.Bar(x=d,y=dp,name="이격도(%)",marker_color="#E5A823",opacity=0.85,
-                  hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{y:.1f}%<extra></extra>"),secondary_y=True)
     unit="원" if is_kr(code) else "$"
-    fig.add_trace(go.Scatter(x=d,y=p,name=f"주가({unit})",line=dict(color="#111111",width=1.7),
-                  hovertemplate="%{x|%Y-%m-%d}<br>"+f"%{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
-    fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일선",line=dict(color="#8A99B0",width=3)),secondary_y=False)
+    # 이격도 = 주황 막대(주인공) / 이평선 = 파랑 굵은 선 / 주가 = 검정 선  → 폰에서도 확실히 구분
+    fig.add_trace(go.Bar(x=d,y=dp,name="이격도(%)",marker_color="#FB8C00",opacity=0.9,
+                  marker_line_width=0,
+                  hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{y:.1f}%<extra></extra>"),secondary_y=True)
+    fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일 이동평균선",line=dict(color="#1565C0",width=3.2),
+                  hovertemplate="%{x|%Y-%m-%d}<br>"+f"{ma}일선 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
+    fig.add_trace(go.Scatter(x=d,y=p,name=f"주가({unit})",line=dict(color="#111111",width=2.2),
+                  hovertemplate="%{x|%Y-%m-%d}<br>"+f"주가 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
     if p.max()/max(p.min(),1)>3: fig.update_yaxes(type="log",secondary_y=False)
-    fig.update_yaxes(title_text=f"주가({unit})",secondary_y=False,showgrid=True,gridcolor="#EEF1F5")
-    fig.update_yaxes(title_text="이격도(%)",secondary_y=True,showgrid=False,
-                     range=[min(95,np.floor(dp.min()/5)*5),np.ceil(dp.max()/5)*5+2])
-    fig.update_layout(title=f"{name} · {ma}일 이격도 (주가÷{ma}일선×100)",template="plotly_white",
-                      height=460,margin=dict(l=10,r=10,t=46,b=10),legend=dict(orientation="h",y=1.08,x=0.5,xanchor="center"),
-                      hovermode="x unified",font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
-    return fig.to_html(include_plotlyjs="cdn",full_html=False,config={"displayModeBar":True,"displaylogo":False})
+    fig.update_yaxes(title_text=f"주가({unit})",secondary_y=False,showgrid=True,gridcolor="#E3E8EF",
+                     title_font=dict(size=13),tickfont=dict(size=12))
+    fig.update_yaxes(title_text="이격도(%)",secondary_y=True,showgrid=False,title_font=dict(size=13,color="#E67E00"),
+                     tickfont=dict(size=12,color="#E67E00"),
+                     range=[min(92,np.floor(dp.min()/5)*5),np.ceil(dp.max()/5)*5+2])
+    fig.update_xaxes(tickfont=dict(size=11))
+    fig.update_layout(title=dict(text=f"{name} · {ma}일 이격도",font=dict(size=15)),template="plotly_white",
+                      height=440,autosize=True,margin=dict(l=6,r=6,t=58,b=6),
+                      legend=dict(orientation="h",y=1.10,x=0.5,xanchor="center",font=dict(size=13)),
+                      hovermode="x unified",font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=13),
+                      bargap=0.05)
+    return fig.to_html(include_plotlyjs="cdn",full_html=False,
+                       config={"displayModeBar":False,"displaylogo":False,"responsive":True})
 
 def fig_fin(years,rev,op,ni,kr):
     div=1e12 if kr else 1e9; u="조원" if kr else "$B"
+    def vals(s): return [ (round(v/div,1) if v else None) for v in s]
     fig=go.Figure()
-    fig.add_bar(x=years,y=[ (v/div if v else None) for v in rev],name="매출",marker_color="#2563B0")
-    fig.add_bar(x=years,y=[ (v/div if v else None) for v in op ],name="영업이익",marker_color="#1E7E45")
-    fig.add_bar(x=years,y=[ (v/div if v else None) for v in ni ],name="순이익",marker_color="#E5A823")
-    fig.update_layout(barmode="group",template="plotly_white",height=320,title=f"5년 재무 추이 ({u})",
-                      margin=dict(l=10,r=10,t=46,b=10),legend=dict(orientation="h",y=1.12,x=0.5,xanchor="center"),
-                      font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
-    return fig.to_html(include_plotlyjs=False,full_html=False,config={"displayModeBar":False})
+    fig.add_bar(x=years,y=vals(rev),name="매출",marker_color="#1565C0",
+                text=vals(rev),textposition="outside",texttemplate="%{text}",cliponaxis=False)
+    fig.add_bar(x=years,y=vals(op),name="영업이익",marker_color="#2E7D32",
+                text=vals(op),textposition="outside",texttemplate="%{text}",cliponaxis=False)
+    fig.add_bar(x=years,y=vals(ni),name="순이익",marker_color="#EF6C00",
+                text=vals(ni),textposition="outside",texttemplate="%{text}",cliponaxis=False)
+    fig.update_layout(barmode="group",template="plotly_white",height=340,autosize=True,
+                      title=dict(text=f"5년 재무 추이 (단위: {u})",font=dict(size=15)),
+                      margin=dict(l=6,r=6,t=58,b=6),bargap=0.25,bargroupgap=0.08,
+                      legend=dict(orientation="h",y=1.14,x=0.5,xanchor="center",font=dict(size=13)),
+                      uniformtext=dict(minsize=9,mode="hide"),
+                      font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
+    fig.update_yaxes(tickfont=dict(size=11),showgrid=True,gridcolor="#E3E8EF")
+    fig.update_xaxes(tickfont=dict(size=12))
+    fig.update_traces(textfont_size=11)
+    return fig.to_html(include_plotlyjs=False,full_html=False,
+                       config={"displayModeBar":False,"responsive":True})
 
 CSS="""
 <meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover'>
@@ -159,8 +242,11 @@ th{background:#2563B0;color:#fff} tr:nth-child(even) td{background:#F4F7FB}
 
 def form_html(code="",ma="30",months="18"):
     def opt(v,cur): return f"<option value='{v}'{' selected' if str(v)==str(cur) else ''}>{v}</option>"
+    dl="".join(f"<option value='{esc(nm)}'>{esc(c)}</option>" for nm,c in CURATED.items())
     return f"""<form class='bar' action='/analyze' method='get'>
-      <div><label>종목코드 (한국 005930 / 미국 NVDA)</label><input type='text' name='code' value='{esc(code)}' placeholder='005930' autofocus></div>
+      <div style='flex:1 1 180px'><label>종목 이름 일부 또는 코드 (예: 삼성 · 하이닉스 · 005930 · NVDA)</label>
+        <input type='text' name='code' value='{esc(code)}' placeholder='삼성  /  하이닉스  /  005930  /  NVDA' list='codes' autocomplete='off' autofocus>
+        <datalist id='codes'>{dl}</datalist></div>
       <div><label>이격 기준일수</label><select name='ma'>{''.join(opt(v,ma) for v in [10,20,30,60,120])}</select></div>
       <div><label>기간(개월)</label><select name='months'>{''.join(opt(v,months) for v in [3,6,12,18,24,36])}</select></div>
       <button type='submit'>분석</button>
@@ -168,8 +254,7 @@ def form_html(code="",ma="30",months="18"):
 
 @app.route("/")
 def home():
-    ex="".join(f"<a class='ex' href='/analyze?code={c}'>{n}</a>" for c,n in
-        [("005930","삼성전자"),("000660","SK하이닉스"),("042700","한미반도체"),("082740","한화엔진"),("NVDA","엔비디아"),("MU","마이크론")])
+    ex="".join(f"<a class='ex' href='/analyze?code={c}'>{n}</a>" for n,c in RECO)
     phone=""
     if not PHONE_URL.startswith("http://127."):
         qr=qr_svg(PHONE_URL)
@@ -181,8 +266,8 @@ def home():
       <h1>📈 주식 분석 (HTML)</h1><p>종목·이격일수·기간을 바꿔가며 인터랙티브 차트로 분석 · 실행 시 최신 데이터</p></div></div>
       <div class='wrap'>{form_html()}
       {phone}
-      <div class='card'><b>바로가기</b><br>{ex}</div>
-      <div class='note'>한국=6자리 코드, 미국=티커. 데이터: FinanceDataReader·yfinance. 투자 권유 아님.</div>
+      <div class='card'><b>🔥 추천 종목 (탭하면 바로 분석)</b><br><div style='margin-top:6px'>{ex}</div></div>
+      <div class='note'>이름 <b>일부만</b> 입력해도 검색됩니다(예: "삼성"·"하이닉스"). 한국=6자리코드·미국=티커도 가능. 데이터: FinanceDataReader·yfinance(한글뉴스: 구글뉴스). 투자 권유 아님.</div>
       <div class='foot'>주식 분석 웹앱 · 로컬 실행</div></div></body></html>"""
 
 @app.route("/manifest.webmanifest")
@@ -194,7 +279,8 @@ def manifest():
 
 @app.route("/analyze")
 def analyze():
-    code=(request.args.get("code") or "").strip().upper()
+    raw=(request.args.get("code") or "").strip()
+    code=resolve_code(raw)
     ma=int(request.args.get("ma") or 30); months=int(request.args.get("months") or 18)
     if not code: return home()
     kr=is_kr(code)
@@ -204,7 +290,7 @@ def analyze():
     except Exception as e:
         return f"<!doctype html><html>{CSS}<body><div class='top'><div class='wrap' style='padding:0'><h1>📈 주식 분석</h1></div></div><div class='wrap'>{form_html(code,ma,months)}<div class='note warn'>‼ '{esc(code)}' 데이터를 가져오지 못했습니다. 종목코드를 확인하세요(한국=6자리, 미국=티커). ({esc(e)})</div></div></body></html>"
     info,inc,news=fetch_meta(code)
-    name=info.get("longName") or info.get("shortName") or code
+    name=disp_name(code,info)
     cur=int(p[-1]); curdisp=float(dp[-1]); unit="원" if kr else "$"
     # 재무
     years=[];rev=[];op=[];ni=[]
@@ -237,13 +323,14 @@ def analyze():
     if years:
         rows="".join(f"<tr{' class=hl' if i==len(years)-1 else ''}><td>{y}</td><td>{fmt(rev[i],kr)}</td><td>{fmt(op[i],kr)}</td><td>{fmt(ni[i],kr)}</td><td>{(f'{op[i]/rev[i]*100:.1f}%') if (op[i] and rev[i]) else '-'}</td></tr>" for i,y in enumerate(years))
         fin_html=f"<table><tr><th>연도</th><th>매출</th><th>영업이익</th><th>순이익</th><th>영업이익률</th></tr>{rows}</table>"+fig_fin(years,rev,op,ni,kr)
-    # 뉴스
-    items=""
-    for n in news[:7]:
-        c=n.get("content",n) if isinstance(n.get("content",None),dict) else n
-        ti=c.get("title") or n.get("title"); lk=(c.get("canonicalUrl",{}) or {}).get("url") or n.get("link")
-        if ti:
-            items+=f"<li>{('<a target=_blank href=\"'+esc(lk)+'\">') if lk else ''}{esc(ti)}{'</a>' if lk else ''}</li>"
+    # 뉴스(한글: 구글뉴스 한국어 RSS) — 실패 시 yfinance(영문) 폴백
+    knews=korean_news(name,6)
+    if not knews:
+        for n in news[:6]:
+            c=n.get("content",n) if isinstance(n.get("content",None),dict) else n
+            ti=c.get("title") or n.get("title"); lk=(c.get("canonicalUrl",{}) or {}).get("url") or n.get("link")
+            if ti: knews.append((ti,lk))
+    items="".join(f"<li>{('<a target=_blank href=\"'+esc(l)+'\">') if l else ''}{esc(t)}{'</a>' if l else ''}</li>" for t,l in knews)
     news_html=f"<ul class='news'>{items or '<li>(뉴스 없음)</li>'}</ul>"
     # 스코어카드
     def star(b): return "<span class=star>★★★★☆</span>" if b is True else ("<span class=star>★★★☆☆</span>" if b is None else "<span class=star>★★☆☆☆</span>")
