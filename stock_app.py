@@ -154,48 +154,43 @@ def get_prices(code,ma,months):
 def fig_disparity(code,ma,d,p,mm,dp,name):
     fig=make_subplots(specs=[[{"secondary_y":True}]])
     unit="원" if is_kr(code) else "$"
-    # 이격도 = 주황 막대(주인공) / 이평선 = 파랑 굵은 선 / 주가 = 검정 선  → 폰에서도 확실히 구분
-    fig.add_trace(go.Bar(x=d,y=dp,name="이격도(%)",marker_color="#FB8C00",opacity=0.9,
-                  marker_line_width=0,
+    # 3개 모두 '선'으로 — 폰에서 겹쳐도 색으로 확실히 구분 (이격도=주황·이평선=파랑·주가=검정)
+    fig.add_trace(go.Scatter(x=d,y=dp,name="이격도(%)",line=dict(color="#FB8C00",width=2.6),
                   hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{y:.1f}%<extra></extra>"),secondary_y=True)
-    fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일 이동평균선",line=dict(color="#1565C0",width=3.2),
+    fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일선",line=dict(color="#1565C0",width=2.4),
                   hovertemplate="%{x|%Y-%m-%d}<br>"+f"{ma}일선 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
-    fig.add_trace(go.Scatter(x=d,y=p,name=f"주가({unit})",line=dict(color="#111111",width=2.2),
+    fig.add_trace(go.Scatter(x=d,y=p,name=f"주가({unit})",line=dict(color="#111111",width=2.4),
                   hovertemplate="%{x|%Y-%m-%d}<br>"+f"주가 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
     if p.max()/max(p.min(),1)>3: fig.update_yaxes(type="log",secondary_y=False)
-    fig.update_yaxes(title_text=f"주가({unit})",secondary_y=False,showgrid=True,gridcolor="#E3E8EF",
-                     title_font=dict(size=13),tickfont=dict(size=12))
-    fig.update_yaxes(title_text="이격도(%)",secondary_y=True,showgrid=False,title_font=dict(size=13,color="#E67E00"),
-                     tickfont=dict(size=12,color="#E67E00"),
-                     range=[min(92,np.floor(dp.min()/5)*5),np.ceil(dp.max()/5)*5+2])
+    fig.update_yaxes(title_text=f"주가({unit})",secondary_y=False,showgrid=True,gridcolor="#E6EBF1",
+                     title_font=dict(size=12),tickfont=dict(size=11))
+    fig.update_yaxes(title_text="이격도%",secondary_y=True,showgrid=False,title_font=dict(size=12,color="#E67E00"),
+                     tickfont=dict(size=11,color="#E67E00"),zeroline=False,
+                     range=[np.floor(dp.min()/2)*2-2,np.ceil(dp.max()/2)*2+2])
     fig.update_xaxes(tickfont=dict(size=11))
     fig.update_layout(title=dict(text=f"{name} · {ma}일 이격도",font=dict(size=15)),template="plotly_white",
-                      height=440,autosize=True,margin=dict(l=6,r=6,t=58,b=6),
-                      legend=dict(orientation="h",y=1.10,x=0.5,xanchor="center",font=dict(size=13)),
-                      hovermode="x unified",font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=13),
-                      bargap=0.05)
+                      height=420,margin=dict(l=6,r=6,t=58,b=6),
+                      legend=dict(orientation="h",y=1.12,x=0.5,xanchor="center",font=dict(size=13)),
+                      hovermode="x unified",font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
     return fig.to_html(include_plotlyjs="cdn",full_html=False,
                        config={"displayModeBar":False,"displaylogo":False,"responsive":True})
 
 def fig_fin(years,rev,op,ni,kr):
     div=1e12 if kr else 1e9; u="조원" if kr else "$B"
-    def vals(s): return [ (round(v/div,1) if v else None) for v in s]
+    def vals(s): return [ (round(v/div,1) if v else 0) for v in s]
+    R,O,N=vals(rev),vals(op),vals(ni)
+    mx=max(R+O+N+[1])
     fig=go.Figure()
-    fig.add_bar(x=years,y=vals(rev),name="매출",marker_color="#1565C0",
-                text=vals(rev),textposition="outside",texttemplate="%{text}",cliponaxis=False)
-    fig.add_bar(x=years,y=vals(op),name="영업이익",marker_color="#2E7D32",
-                text=vals(op),textposition="outside",texttemplate="%{text}",cliponaxis=False)
-    fig.add_bar(x=years,y=vals(ni),name="순이익",marker_color="#EF6C00",
-                text=vals(ni),textposition="outside",texttemplate="%{text}",cliponaxis=False)
-    fig.update_layout(barmode="group",template="plotly_white",height=340,autosize=True,
-                      title=dict(text=f"5년 재무 추이 (단위: {u})",font=dict(size=15)),
-                      margin=dict(l=6,r=6,t=58,b=6),bargap=0.25,bargroupgap=0.08,
-                      legend=dict(orientation="h",y=1.14,x=0.5,xanchor="center",font=dict(size=13)),
-                      uniformtext=dict(minsize=9,mode="hide"),
+    fig.add_bar(x=years,y=R,name="매출",marker_color="#1565C0")
+    fig.add_bar(x=years,y=O,name="영업이익",marker_color="#2E7D32")
+    fig.add_bar(x=years,y=N,name="순이익",marker_color="#EF6C00")
+    fig.update_layout(barmode="group",template="plotly_white",height=300,
+                      title=dict(text=f"5년 재무 추이 (단위: {u})",font=dict(size=14)),
+                      margin=dict(l=8,r=8,t=64,b=8),bargap=0.3,bargroupgap=0.06,
+                      legend=dict(orientation="h",y=1.18,x=0.5,xanchor="center",font=dict(size=13)),
                       font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
-    fig.update_yaxes(tickfont=dict(size=11),showgrid=True,gridcolor="#E3E8EF")
-    fig.update_xaxes(tickfont=dict(size=12))
-    fig.update_traces(textfont_size=11)
+    fig.update_yaxes(range=[0,mx*1.15],tickfont=dict(size=11),showgrid=True,gridcolor="#E6EBF1")
+    fig.update_xaxes(tickfont=dict(size=13))
     return fig.to_html(include_plotlyjs=False,full_html=False,
                        config={"displayModeBar":False,"responsive":True})
 
