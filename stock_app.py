@@ -209,6 +209,30 @@ def fig_fin(years,rev,op,ni,kr,title="5년 재무 추이"):
     return fig.to_html(include_plotlyjs=False,full_html=False,
                        config={"displayModeBar":False,"responsive":True})
 
+def fig_mdd(d,p,name):
+    """MDD(고점 대비 낙폭) 언더워터 차트. 이격도 차트가 이미 plotly.js를 CDN 로드함."""
+    arr=np.asarray(p,dtype=float); peak=np.maximum.accumulate(arr); dd=(arr/peak-1.0)*100.0
+    mn=float(dd.min())
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=d,y=dd,fill="tozeroy",line=dict(color="#C0392B",width=1.4),
+                  fillcolor="rgba(192,57,43,0.16)",name="고점대비 낙폭%",
+                  hovertemplate="%{x|%Y-%m-%d}<br>낙폭 %{y:.1f}%<extra></extra>"))
+    fig.add_hline(y=-10,line=dict(color="#E67E00",width=1,dash="dot"),
+                  annotation_text="-10%(조정)",annotation_position="bottom left",
+                  annotation_font=dict(size=10,color="#B9770E"))
+    if mn<-15:
+        fig.add_hline(y=-20,line=dict(color="#C0392B",width=1,dash="dot"),
+                      annotation_text="-20%(큰 조정)",annotation_position="bottom left",
+                      annotation_font=dict(size=10,color="#C0392B"))
+    fig.update_yaxes(title_text="낙폭%",tickfont=dict(size=11),title_font=dict(size=12),
+                     range=[min(mn*1.12,-3.0),1.5])
+    fig.update_xaxes(tickfont=dict(size=11))
+    fig.update_layout(title=dict(text=f"{name} · MDD (고점 대비 낙폭)",font=dict(size=14)),
+                      template="plotly_white",height=280,margin=dict(l=6,r=6,t=46,b=6),showlegend=False,
+                      font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
+    return fig.to_html(include_plotlyjs=False,full_html=False,
+                       config={"displayModeBar":False,"responsive":True})
+
 def extract_stmt(stmt, label):
     """손익계산서(연간/분기)에서 (라벨, 매출, 영업이익, 순이익) 추출. 오래된→최신 순."""
     ys=[];rev=[];op=[];ni=[]
@@ -453,8 +477,9 @@ def analyze():
                 + fig_fin(qy,qr,qo,qn,kr,"분기 추이"))
     else:
         q_html="<div class='note' style='margin-top:12px'>분기 데이터 미제공(일부 한국주). DART 분기보고서 확인 권장.</div>"
-    # 이격도 해석(상태 문구)
+    # 이격도 해석(상태 + 종목 자체 이력 백분위)
     cd_=curdisp
+    dparr=np.asarray(dp,dtype=float); top=float((dparr>cd_).mean()*100.0)  # 현재보다 높았던 비율=상위%
     if cd_>=110: dstate="강한 과열권 (평균보다 많이 비쌈)"
     elif cd_>=105: dstate="과열 경향"
     elif cd_>=95: dstate="안정권 (평균 부근)"
@@ -462,10 +487,28 @@ def analyze():
     else: dstate="강한 침체권 (저평가 가능)"
     guide=("<div class='note'><b>📖 이격도 쉽게 보는 법</b><br>"
            f"<b>이격도 = 주가 ÷ {ma}일 이동평균 × 100</b> · <b>100</b>이면 주가가 이평선과 같음.<br>"
-           "▸ 막대가 <b style='color:#E67E00'>100 위(주황)</b> = 주가가 평균보다 <b>비쌈</b> → 단기 <b>과열</b><br>"
-           "▸ 막대가 <b style='color:#1A8C7A'>100 아래(청록)</b> = 평균보다 <b>쌈</b> → <b>침체·저평가</b> 가능<br>"
-           "▸ 100에서 많이 벗어날수록 평균으로 되돌아가려는 힘↑ (적정 폭은 종목마다 다름)<br>"
-           f"현재 <b style='font-size:15px'>{cd_:.1f}%</b> → <b>{dstate}</b></div>")
+           "▸ 막대 <b style='color:#E67E00'>100 위(주황)</b> = 평균보다 <b>비쌈</b> → 단기 <b>과열</b><br>"
+           "▸ 막대 <b style='color:#1A8C7A'>100 아래(청록)</b> = 평균보다 <b>쌈</b> → <b>침체·저평가</b> 가능<br>"
+           "▸ 100에서 많이 벗어날수록 평균 회귀 힘↑ (적정 폭은 종목마다 다름)<br>"
+           f"현재 <b style='font-size:15px'>{cd_:.1f}%</b> → <b>{dstate}</b> · 최근 {months}개월 중 <b>상위 {top:.0f}%</b><br>"
+           "<span class='muted'>※ 참고(이그전): 코스피 50일 기준 130%↑ 과열·105%↓ 과열해소. 개별종목은 위 '상위%'로 과열 정도 판단.</span></div>")
+    # MDD(고점 대비 낙폭)
+    parr=np.asarray(p,dtype=float); pk=np.maximum.accumulate(parr); ddv=(parr/pk-1.0)*100.0
+    cur_dd=float(ddv[-1]); max_dd=float(ddv.min()); prev_peak=float(pk[-1])
+    if cur_dd>-3: mstate="고점 부근 (낙폭 거의 없음)"
+    elif cur_dd>-10: mstate="완만한 조정 구간"
+    elif cur_dd>-15: mstate="조정 진행 중"
+    elif cur_dd>-20: mstate="비교적 큰 조정"
+    else: mstate="깊은 조정"
+    mdd_tbl=(f"<table class='kpi'><tr><td>현재 고점대비 낙폭</td><td><b>{cur_dd:.1f}%</b> · {mstate}</td></tr>"
+             f"<tr><td>기간 내 최대낙폭(MDD)</td><td><b>{max_dd:.1f}%</b></td></tr>"
+             f"<tr><td>직전 최고가</td><td>{prev_peak:,.0f}{unit}</td></tr></table>")
+    mdd_guide=("<div class='note'><b>📖 MDD 쉽게 보기</b><br>"
+               "<b>MDD = (현재가 ÷ 직전 고점 − 1) × 100</b> = 고점 대비 얼마나 빠졌나.<br>"
+               "▸ 강세장일수록 조정이 <b>더 자주·더 크게</b> 옴(최근 강세장은 약 3~4개월마다 -10%↑ 조정).<br>"
+               "▸ <b>-15~-20%</b>면 비교적 큰 조정.<br>"
+               "▸ <b>이격도(과열)+MDD(낙폭)</b>를 함께 보면 조정 시점·폭을 가늠하기 좋음.</div>")
+    mdd_chart=fig_mdd(d,p,name)
     fav_btn=(f"<button onclick=\"addFav('{esc(code)}','{esc(name)}')\" style='background:#C9A227'>⭐ 즐겨찾기</button> "
              f"<a class='ex' href='/compare?codes={esc(code)}' style='padding:10px 14px'>🔁 비교</a>")
     sector=esc((info.get("sector") or "")+" · "+(info.get("industry") or ""))
@@ -476,6 +519,7 @@ def analyze():
       <div class='card' style='text-align:center'>{fav_btn}</div>
       <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}</div>
       <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}{guide}</div>
+      <div class='sec'>📉 MDD · 고점 대비 낙폭 (조정 분석)</div><div class='card'>{mdd_tbl}{mdd_chart}{mdd_guide}</div>
       <div class='sec'>💰 재무 추이 (연간 + 분기)</div><div class='card'>{fin_html}{q_html}</div>
       <div class='note warn'>⚠ 실시간 자동 산출 · 데이터 오류·지연 가능 · <b>투자 권유가 아님</b> · 최종 책임은 투자자 본인.</div>
       <div class='foot'>주식 분석 웹앱 · {esc(code)} · {dt.date.today()}</div>
