@@ -251,7 +251,9 @@ CSS="""
 <meta name='apple-mobile-web-app-title' content='주식분석'><meta name='theme-color' content='#16243F'>
 <link rel='manifest' href='/manifest.webmanifest'>
 <style>
-*{box-sizing:border-box} body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;margin:0;background:#F4F7FB;color:#1C2530;-webkit-text-size-adjust:100%}
+*{box-sizing:border-box} html{overflow-x:hidden} body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;margin:0;background:#F4F7FB;color:#1C2530;-webkit-text-size-adjust:100%;overflow-x:hidden;max-width:100vw}
+#js-plotly-tester{position:absolute!important;left:-99999px!important;top:0!important;visibility:hidden!important}
+.js-plotly-plot,.plot-container,.svg-container{max-width:100%!important}
 .wrap{max-width:920px;margin:0 auto;padding:0 14px 40px}
 .top{background:#16243F;color:#fff;padding:18px 16px;border-radius:0 0 14px 14px}
 .top h1{margin:0;font-size:20px} .top p{margin:4px 0 0;color:#C7D6EC;font-size:13px}
