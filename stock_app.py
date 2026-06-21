@@ -158,24 +158,35 @@ def get_prices(code,ma,months):
 def fig_disparity(code,ma,d,p,mm,dp,name):
     fig=make_subplots(specs=[[{"secondary_y":True}]])
     unit="원" if is_kr(code) else "$"
-    # 3개 모두 '선'으로 — 폰에서 겹쳐도 색으로 확실히 구분 (이격도=주황·이평선=파랑·주가=검정)
-    fig.add_trace(go.Scatter(x=d,y=dp,name="이격도(%)",line=dict(color="#FB8C00",width=2.6),
-                  hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{y:.1f}%<extra></extra>"),secondary_y=True)
+    # 이격도='막대'(100 기준 anchored): 위=과열(주황)·아래=침체(청록). 주가·이평선 '뒤'(먼저 add → 뒤로).
+    dev=[float(v)-100 for v in dp]
+    bcol=["#FB8C00" if v>=0 else "#26A69A" for v in dev]
+    fig.add_trace(go.Bar(x=d,y=dev,base=100,name="이격도(막대)",marker_color=bcol,opacity=0.5,
+                  marker_line_width=0,customdata=dp,
+                  hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{customdata:.1f}%<extra></extra>"),secondary_y=True)
     fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일선",line=dict(color="#1565C0",width=2.4),
                   hovertemplate="%{x|%Y-%m-%d}<br>"+f"{ma}일선 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
     fig.add_trace(go.Scatter(x=d,y=p,name=f"주가({unit})",line=dict(color="#111111",width=2.4),
                   hovertemplate="%{x|%Y-%m-%d}<br>"+f"주가 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
     if p.max()/max(p.min(),1)>3: fig.update_yaxes(type="log",secondary_y=False)
+    lo2=min(float(dp.min()),100.0); hi2=max(float(dp.max()),100.0); pad=max(2.0,(hi2-lo2)*0.12)
     fig.update_yaxes(title_text=f"주가({unit})",secondary_y=False,showgrid=True,gridcolor="#E6EBF1",
                      title_font=dict(size=12),tickfont=dict(size=11))
-    fig.update_yaxes(title_text="이격도%",secondary_y=True,showgrid=False,title_font=dict(size=12,color="#E67E00"),
-                     tickfont=dict(size=11,color="#E67E00"),zeroline=False,
-                     range=[np.floor(dp.min()/2)*2-2,np.ceil(dp.max()/2)*2+2])
+    fig.update_yaxes(title_text="이격도%",secondary_y=True,showgrid=False,zeroline=False,
+                     title_font=dict(size=12,color="#E67E00"),tickfont=dict(size=11,color="#E67E00"),
+                     range=[lo2-pad,hi2+pad])
+    fig.add_hline(y=100,line=dict(color="#8A97A6",width=1.4,dash="dash"),secondary_y=True,
+                  annotation_text="100=이평선",annotation_position="top left",
+                  annotation_font=dict(size=10,color="#5B6B7C"))
+    fig.add_annotation(x=d[-1],y=float(dp[-1]),yref="y2",text=f"현재 {float(dp[-1]):.1f}%",showarrow=True,
+                  arrowhead=2,arrowcolor="#E67E00",ax=-34,ay=-22,font=dict(size=11,color="#E67E00"),
+                  bgcolor="rgba(255,255,255,0.82)")
     fig.update_xaxes(tickfont=dict(size=11))
-    fig.update_layout(title=dict(text=f"{name} · {ma}일 이격도",font=dict(size=15)),template="plotly_white",
-                      height=420,margin=dict(l=6,r=6,t=58,b=6),
-                      legend=dict(orientation="h",y=1.12,x=0.5,xanchor="center",font=dict(size=13)),
-                      hovermode="x unified",font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
+    fig.update_layout(title=dict(text=f"{name} · {ma}일 이격도 (막대 100기준: 위=과열·아래=침체)",font=dict(size=14)),
+                      template="plotly_white",height=440,margin=dict(l=6,r=6,t=60,b=6),
+                      legend=dict(orientation="h",y=1.13,x=0.5,xanchor="center",font=dict(size=12)),
+                      hovermode="x unified",bargap=0.04,
+                      font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
     return fig.to_html(include_plotlyjs="cdn",full_html=False,
                        config={"displayModeBar":False,"displaylogo":False,"responsive":True})
 
@@ -442,75 +453,32 @@ def analyze():
                 + fig_fin(qy,qr,qo,qn,kr,"분기 추이"))
     else:
         q_html="<div class='note' style='margin-top:12px'>분기 데이터 미제공(일부 한국주). DART 분기보고서 확인 권장.</div>"
-    # 뉴스(한글: 구글뉴스 한국어 RSS) — 실패 시 yfinance(영문) 폴백
-    knews=korean_news(name,6)
-    if not knews:
-        for n in news[:6]:
-            c=n.get("content",n) if isinstance(n.get("content",None),dict) else n
-            ti=c.get("title") or n.get("title"); lk=(c.get("canonicalUrl",{}) or {}).get("url") or n.get("link")
-            if ti: knews.append((ti,lk))
-    items="".join(f"<li>{('<a target=_blank href=\"'+esc(l)+'\">') if l else ''}{esc(t)}{'</a>' if l else ''}</li>" for t,l in knews)
-    news_html=f"<ul class='news'>{items or '<li>(뉴스 없음)</li>'}</ul>"
-    # 스코어카드
-    def star(b): return "<span class=star>★★★★☆</span>" if b is True else ("<span class=star>★★★☆☆</span>" if b is None else "<span class=star>★★☆☆☆</span>")
-    g_rev=(years and rev[-1] and rev[0] and rev[-1]>rev[0]); g_op=(years and op[-1] and op[0] and op[-1]>op[0])
-    val=(per is not None and per<15); dok=(curdisp<115)
-    score=f"""<table><tr><th>항목</th><th>등급</th><th>근거(자동)</th></tr>
-      <tr><td>매출 성장(5Y)</td><td>{star(bool(g_rev))}</td><td>{'최근>과거' if g_rev else '정체/감소·확인'}</td></tr>
-      <tr><td>이익 성장(5Y)</td><td>{star(bool(g_op))}</td><td>{'영업이익 개선' if g_op else '확인 필요'}</td></tr>
-      <tr><td>밸류(PER)</td><td>{star(True if val else (None if per is None else False))}</td><td>PER {num(per)}</td></tr>
-      <tr><td>이격도 위치</td><td>{star(True if dok else False)}</td><td>{curdisp:.1f}% ({'안정권' if dok else '과열경계'})</td></tr></table>"""
-    # 기술지표
-    t=tech(code)
-    if t:
-        rsi=t["rsi"]; rstate="과매수(70↑)" if rsi>70 else ("과매도(30↓)" if rsi<30 else "중립")
-        tech_html=(f"<table class='kpi'><tr><td>RSI(14)</td><td><b>{rsi:.0f}</b> · {rstate}</td></tr>"
-                   f"<tr><td>20/60일선</td><td>{'▲ 골든크로스(단기>장기)' if t['cross'] else '▼ 데드크로스(단기<장기)'}</td></tr>"
-                   f"<tr><td>52주 위치</td><td><b>{t['pos']:.0f}%</b> (저 {t['lo']:,.0f} ~ 고 {t['hi']:,.0f})</td></tr></table>")
-    else: tech_html="<div class='muted'>기술지표 계산 불가</div>"
-    # 애널리스트 컨센서스
-    KMAP={"strong_buy":"적극매수","buy":"매수","outperform":"비중확대","hold":"중립","underperform":"비중축소","sell":"매도","strong_sell":"적극매도","none":"-"}
-    rk=info.get("recommendationKey"); na=info.get("numberOfAnalystOpinions")
-    th=info.get("targetHighPrice"); tl=info.get("targetLowPrice"); tm=info.get("targetMeanPrice")
-    if (rk and rk!="none") or tm or na:
-        cons_html=(f"<table class='kpi'><tr><td>투자의견</td><td><b>{KMAP.get(rk,rk or '-')}</b></td></tr>"
-                   f"<tr><td>평균 목표가</td><td>{(f'{tm:,.0f}'+unit) if tm else '-'}</td></tr>"
-                   f"<tr><td>목표가 범위</td><td>{(f'{tl:,.0f} ~ {th:,.0f}'+unit) if (tl and th) else '-'}</td></tr>"
-                   f"<tr><td>애널리스트 수</td><td>{na or '-'}</td></tr></table>")
-    else: cons_html="<div class='muted'>컨센서스 미제공(한국주는 자주 비어 있음). 증권사 리포트 확인 권장.</div>"
-    # 배당
-    dy=info.get("dividendYield"); drate=info.get("dividendRate"); po=info.get("payoutRatio"); exd=info.get("exDividendDate")
-    exs="-"
-    if exd:
-        try: exs=dt.datetime.fromtimestamp(int(exd),dt.timezone.utc).strftime("%Y-%m-%d")
-        except Exception: exs="-"
-    if dy or drate:
-        div_html=(f"<table class='kpi'><tr><td>배당수익률</td><td><b>{(f'{dy*100:.2f}%') if dy else '-'}</b></td></tr>"
-                  f"<tr><td>주당 배당금</td><td>{(f'{drate:,.0f}'+unit) if drate else '-'}</td></tr>"
-                  f"<tr><td>배당성향</td><td>{(f'{po*100:.0f}%') if po else '-'}</td></tr>"
-                  f"<tr><td>배당락일</td><td>{exs}</td></tr></table>")
-    else: div_html="<div class='muted'>배당 정보 없음(무배당이거나 미제공).</div>"
+    # 이격도 해석(상태 문구)
+    cd_=curdisp
+    if cd_>=110: dstate="강한 과열권 (평균보다 많이 비쌈)"
+    elif cd_>=105: dstate="과열 경향"
+    elif cd_>=95: dstate="안정권 (평균 부근)"
+    elif cd_>=90: dstate="침체 경향"
+    else: dstate="강한 침체권 (저평가 가능)"
+    guide=("<div class='note'><b>📖 이격도 쉽게 보는 법</b><br>"
+           f"<b>이격도 = 주가 ÷ {ma}일 이동평균 × 100</b> · <b>100</b>이면 주가가 이평선과 같음.<br>"
+           "▸ 막대가 <b style='color:#E67E00'>100 위(주황)</b> = 주가가 평균보다 <b>비쌈</b> → 단기 <b>과열</b><br>"
+           "▸ 막대가 <b style='color:#1A8C7A'>100 아래(청록)</b> = 평균보다 <b>쌈</b> → <b>침체·저평가</b> 가능<br>"
+           "▸ 100에서 많이 벗어날수록 평균으로 되돌아가려는 힘↑ (적정 폭은 종목마다 다름)<br>"
+           f"현재 <b style='font-size:15px'>{cd_:.1f}%</b> → <b>{dstate}</b></div>")
     fav_btn=(f"<button onclick=\"addFav('{esc(code)}','{esc(name)}')\" style='background:#C9A227'>⭐ 즐겨찾기</button> "
              f"<a class='ex' href='/compare?codes={esc(code)}' style='padding:10px 14px'>🔁 비교</a>")
-    summ=esc((info.get("longBusinessSummary") or "")[:700])
     sector=esc((info.get("sector") or "")+" · "+(info.get("industry") or ""))
     chart=fig_disparity(code,ma,d,p,mm,dp,name)
     return f"""<!doctype html><html lang='ko'>{CSS}<body>
     <div class='top'><div class='wrap' style='padding:0'><h1>{esc(name)} <span style='font-size:14px;color:#C7D6EC'>({esc(code)})</span></h1><p>{sector} · 생성 {dt.date.today()} · 투자권유 아님</p></div></div>
     <div class='wrap'>{form_html(code,ma,months)}
       <div class='card' style='text-align:center'>{fav_btn}</div>
-      <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}
-        <div class='note'>{ma}일 이격도 <b>{curdisp:.1f}%</b> — 100 위=이평선 위(과열 경향)·아래=침체. 한국주는 PER/목표가가 '-'일 수 있음.</div></div>
-      <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}</div>
-      <div class='sec'>📐 기술지표 (RSI·이평선·52주)</div><div class='card'>{tech_html}</div>
+      <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}</div>
+      <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}{guide}</div>
       <div class='sec'>💰 재무 추이 (연간 + 분기)</div><div class='card'>{fin_html}{q_html}</div>
-      <div class='sec'>🏦 애널리스트 컨센서스</div><div class='card'>{cons_html}</div>
-      <div class='sec'>💵 배당</div><div class='card'>{div_html}</div>
-      <div class='sec'>🏢 사업 개요</div><div class='card'><div class='muted'>{summ or '(요약 없음)'}</div></div>
-      <div class='sec'>📰 최근 뉴스 (계약·전망 단서)</div><div class='card'>{news_html}<div class='muted'>상세 계약·수주·가이던스는 공시(DART/SEC)·IR 원문 확인.</div></div>
-      <div class='sec'>⭐ 자동 스코어카드 (룰 기반)</div><div class='card'>{score}</div>
-      <div class='note warn'>⚠ 자동 산출(정량 데이터 기반)입니다. 정성 펀더멘털·향후 계약은 리서치로 보강하세요. <b>투자 권유가 아니며</b> 데이터 오류·지연 가능. 최종 책임은 투자자 본인.</div>
-      <div class='foot'>주식 분석 웹앱 · {esc(code)} · {dt.date.today()} · FinanceDataReader·yfinance</div>
+      <div class='note warn'>⚠ 실시간 자동 산출 · 데이터 오류·지연 가능 · <b>투자 권유가 아님</b> · 최종 책임은 투자자 본인.</div>
+      <div class='foot'>주식 분석 웹앱 · {esc(code)} · {dt.date.today()}</div>
     </div></body></html>"""
 
 def open_browser():
