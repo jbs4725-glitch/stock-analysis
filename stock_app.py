@@ -275,6 +275,7 @@ th{background:#2563B0;color:#fff} tr:nth-child(even) td{background:#F4F7FB}
 .ex{display:inline-block;background:#EEF3F9;border-radius:6px;padding:7px 11px;margin:3px;font-size:13px;color:#16243F;text-decoration:none}
 .qr{max-width:190px;margin:8px 0} .qr svg{width:100%;height:auto;background:#fff;border-radius:8px}
 .purl{font-size:17px;font-weight:bold;color:#16243F;word-break:break-all;margin:6px 0}
+.js-plotly-plot,.plotly,.plot-container,.svg-container{-webkit-touch-callout:none !important;-webkit-user-select:none;user-select:none}
 @media(max-width:560px){
   .wrap{padding:0 10px 40px} .top h1{font-size:18px}
   form.bar{flex-direction:column;align-items:stretch;gap:8px}
@@ -287,8 +288,9 @@ th{background:#2563B0;color:#fff} tr:nth-child(even) td{background:#F4F7FB}
 function _favs(){try{return JSON.parse(localStorage.getItem('favs')||'[]')}catch(e){return[]}}
 function addFav(code,name){var f=_favs();if(!f.some(function(x){return x.code===code})){f.push({code:code,name:name});localStorage.setItem('favs',JSON.stringify(f));}renderFavs();alert(name+' ⭐ 즐겨찾기 추가됨');}
 function delFav(code){localStorage.setItem('favs',JSON.stringify(_favs().filter(function(x){return x.code!==code})));renderFavs();}
-function renderFavs(){var el=document.getElementById('favbox');if(!el)return;var f=_favs();if(!f.length){el.innerHTML="<span class='muted'>아직 없음 — 분석 화면에서 ⭐ 추가</span>";return;}el.innerHTML=f.map(function(x){return "<span class='ex' style='display:inline-flex;align-items:center;gap:5px'><a href='/analyze?code="+encodeURIComponent(x.code)+"'>"+x.name+"</a> <a href='#' onclick='delFav(\""+x.code+"\");return false;' style='color:#C0392B;text-decoration:none'>✕</a></span>"}).join('');}
+function renderFavs(){var el=document.getElementById('favbox');if(!el)return;var f=_favs();if(!f.length){el.innerHTML="<span class='muted'>아직 없음 — 분석 화면에서 ⭐ 추가</span>";return;}var h='';for(var i=0;i<f.length;i++){var x=f[i];h+="<span class='ex' style='display:inline-flex;align-items:center;gap:5px'><a href='/analyze?code="+encodeURIComponent(x.code)+"'>"+x.name+"</a> <a href='#' data-del='"+x.code+"' style='color:#C0392B;text-decoration:none'>x</a></span>";}el.innerHTML=h;}
 function loadMarket(){var el=document.getElementById('mktbox');if(!el)return;fetch('/market').then(function(r){return r.text()}).then(function(h){el.innerHTML=h}).catch(function(){el.innerHTML="<span class='muted'>시장지표 불러오기 실패</span>"});}
+document.addEventListener('click',function(e){var t=e.target;if(t&&t.getAttribute&&t.getAttribute('data-del')){e.preventDefault();delFav(t.getAttribute('data-del'));}});
 document.addEventListener('DOMContentLoaded',function(){try{renderFavs()}catch(e){}try{loadMarket()}catch(e){}});
 </script>"""
 
