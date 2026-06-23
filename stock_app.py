@@ -355,13 +355,6 @@ def form_html(code="",ma="30",months="18"):
 @app.route("/")
 def home():
     ex="".join(f"<a class='ex' href='/analyze?code={c}'>{n}</a>" for n,c in RECO)
-    phone=""
-    if not PHONE_URL.startswith("http://127."):
-        qr=qr_svg(PHONE_URL)
-        phone=f"""<div class='card'><b>📱 폰에서 열기</b>
-          <div class='muted'>같은 Wi-Fi에 연결된 폰 카메라로 QR을 비추거나, 폰 브라우저 주소창에 입력:</div>
-          <div class='purl'>{esc(PHONE_URL)}</div>{('<div class=qr>'+qr+'</div>') if qr else ''}
-          <div class='muted'>열린 뒤 [공유]→[홈 화면에 추가] 하면 앱처럼 쓸 수 있어요.</div></div>"""
     return f"""<!doctype html><html lang='ko'>{CSS}<body><div class='top'><div class='wrap' style='padding:0'>
       <h1>📈 주식 분석 (HTML)</h1><p>종목·이격일수·기간을 바꿔가며 인터랙티브 차트로 분석 · 실행 시 최신 데이터</p></div></div>
       <div class='wrap'>{form_html()}
@@ -369,7 +362,6 @@ def home():
       <div class='card'><b>🔥 추천 종목 (탭하면 바로 분석)</b><br><div style='margin-top:6px'>{ex}</div></div>
       <div class='card'><b>⭐ 즐겨찾기</b><div id='favbox' style='margin-top:6px'></div></div>
       <div class='card'><b>🔁 종목 비교 (2~3개)</b>{compare_form()}</div>
-      {phone}
       <div class='note'>이름 <b>일부만</b> 입력해도 검색됩니다(예: "삼성"·"하이닉스"). 한국=6자리코드·미국=티커도 가능. 데이터: FinanceDataReader·yfinance(한글뉴스: 구글뉴스). 투자 권유 아님.</div>
       <div class='foot'>주식 분석 웹앱</div></div></body></html>"""
 
