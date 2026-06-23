@@ -278,6 +278,15 @@ def market():
     if out: _MKT["t"]=time.time(); _MKT["d"]=out
     return out
 
+def index_return(kr, start, end):
+    """기간 내 지수 수익률(%) + 지수명. KR=코스피, 그 외=S&P500."""
+    sym,nm=("KS11","코스피") if kr else ("US500","S&P500")
+    try:
+        c=fdr.DataReader(sym,start,end)["Close"].astype(float).dropna()
+        if len(c)>=2: return (float(c.iloc[-1])/float(c.iloc[0])-1.0)*100.0, nm
+    except Exception: pass
+    return None,nm
+
 CSS="""
 <meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover'>
 <meta name='apple-mobile-web-app-capable' content='yes'>
@@ -509,6 +518,23 @@ def analyze():
                "▸ <b>-15~-20%</b>면 비교적 큰 조정.<br>"
                "▸ <b>이격도(과열)+MDD(낙폭)</b>를 함께 보면 조정 시점·폭을 가늠하기 좋음.</div>")
     mdd_chart=fig_mdd(d,p,name)
+    # 상대강도(vs 지수) — 주도주/소외 (이그전 '주도주 쏠림')
+    try: s0=str(d[0])[:10]; s1=str(d[-1])[:10]
+    except Exception: s0=s1=None
+    stock_ret=(float(p[-1])/float(p[0])-1.0)*100.0 if len(p)>=2 else 0.0
+    idx_ret,idx_name=(index_return(kr,s0,s1) if s0 else (None,("코스피" if kr else "S&P500")))
+    if idx_ret is not None:
+        rel=stock_ret-idx_ret
+        rstate="시장 주도(아웃퍼폼) — 쏠림 수혜" if rel>0 else "시장 소외(언더퍼폼)"
+        rcol="#1E7E45" if rel>=0 else "#C0392B"
+        rel_tbl=(f"<table class='kpi'><tr><td>종목 {months}개월 수익률</td><td><b>{stock_ret:+.1f}%</b></td></tr>"
+                 f"<tr><td>{idx_name} 수익률</td><td>{idx_ret:+.1f}%</td></tr>"
+                 f"<tr><td>초과수익(상대강도)</td><td><b style='color:{rcol}'>{rel:+.1f}%p</b> · {rstate}</td></tr></table>")
+    else: rel_tbl="<div class='muted'>지수 수익률을 가져오지 못했습니다.</div>"
+    rel_guide=("<div class='note'><b>📖 주도주 쏠림 (이그전)</b><br>"
+               "강세장 후반엔 수급이 <b>주도주로 쏠림</b>. 초과수익 <b style='color:#1E7E45'>+</b>면 시장 주도주(쏠림 수혜)·"
+               "<b style='color:#C0392B'>−</b>면 소외주.<br>"
+               "▸ <b>쏠릴 때가 시장에 힘이 남은 때</b>, 반대로 소외주까지 동반상승(<b>종목 확산</b>)하면 랠리 후반 신호일 수 있음.</div>")
     fav_btn=(f"<button onclick=\"addFav('{esc(code)}','{esc(name)}')\" style='background:#C9A227'>⭐ 즐겨찾기</button> "
              f"<a class='ex' href='/compare?codes={esc(code)}' style='padding:10px 14px'>🔁 비교</a>")
     sector=esc((info.get("sector") or "")+" · "+(info.get("industry") or ""))
@@ -520,6 +546,7 @@ def analyze():
       <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}</div>
       <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}{guide}</div>
       <div class='sec'>📉 MDD · 고점 대비 낙폭 (조정 분석)</div><div class='card'>{mdd_tbl}{mdd_chart}{mdd_guide}</div>
+      <div class='sec'>📈 상대강도 · 주도주 여부 (vs 지수)</div><div class='card'>{rel_tbl}{rel_guide}</div>
       <div class='sec'>💰 재무 추이 (연간 + 분기)</div><div class='card'>{fin_html}{q_html}</div>
       <div class='note warn'>⚠ 실시간 자동 산출 · 데이터 오류·지연 가능 · <b>투자 권유가 아님</b> · 최종 책임은 투자자 본인.</div>
       <div class='foot'>주식 분석 웹앱 · {esc(code)} · {dt.date.today()}</div>
