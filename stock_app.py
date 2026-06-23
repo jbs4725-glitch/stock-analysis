@@ -294,6 +294,8 @@ CSS="""
 <meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'>
 <meta name='apple-mobile-web-app-title' content='주식분석'><meta name='theme-color' content='#16243F'>
 <link rel='manifest' href='/manifest.webmanifest'>
+<link rel='icon' type='image/svg+xml' href='/icon.svg'>
+<link rel='apple-touch-icon' href='/icon.svg'>
 <style>
 *{box-sizing:border-box} html{overflow-x:hidden} body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;margin:0;background:#F4F7FB;color:#1C2530;-webkit-text-size-adjust:100%;overflow-x:hidden;max-width:100vw}
 #js-plotly-tester{position:absolute!important;left:-99999px!important;top:0!important;visibility:hidden!important}
@@ -365,11 +367,26 @@ def home():
       <div class='note'>이름 <b>일부만</b> 입력해도 검색됩니다(예: "삼성"·"하이닉스"). 한국=6자리코드·미국=티커도 가능. 데이터: FinanceDataReader·yfinance(한글뉴스: 구글뉴스). 투자 권유 아님.</div>
       <div class='foot'>주식 분석 웹앱</div></div></body></html>"""
 
+ICON_SVG="""<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'>
+<rect width='512' height='512' rx='104' fill='#16243F'/>
+<rect x='92' y='300' width='58' height='118' rx='9' fill='#FB8C00'/>
+<rect x='178' y='256' width='58' height='162' rx='9' fill='#FB8C00'/>
+<rect x='264' y='208' width='58' height='210' rx='9' fill='#FB8C00'/>
+<rect x='350' y='150' width='58' height='268' rx='9' fill='#FB8C00'/>
+<polyline points='96,332 192,288 278,244 364,176 432,116' fill='none' stroke='#FFFFFF' stroke-width='15' stroke-linecap='round' stroke-linejoin='round'/>
+<circle cx='432' cy='116' r='18' fill='#FFFFFF'/>
+</svg>"""
+
+@app.route("/icon.svg")
+def icon_svg():
+    return Response(ICON_SVG,mimetype="image/svg+xml")
+
 @app.route("/manifest.webmanifest")
 def manifest():
     import json as _j
     m={"name":"주식 분석","short_name":"주식분석","start_url":"/","scope":"/","display":"standalone",
-       "background_color":"#F4F7FB","theme_color":"#16243F","lang":"ko","icons":[]}
+       "background_color":"#16243F","theme_color":"#16243F","lang":"ko",
+       "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
     return Response(_j.dumps(m,ensure_ascii=False),mimetype="application/manifest+json")
 
 @app.route("/market")
