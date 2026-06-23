@@ -535,6 +535,25 @@ def analyze():
                "강세장 후반엔 수급이 <b>주도주로 쏠림</b>. 초과수익 <b style='color:#1E7E45'>+</b>면 시장 주도주(쏠림 수혜)·"
                "<b style='color:#C0392B'>−</b>면 소외주.<br>"
                "▸ <b>쏠릴 때가 시장에 힘이 남은 때</b>, 반대로 소외주까지 동반상승(<b>종목 확산</b>)하면 랠리 후반 신호일 수 있음.</div>")
+    # 실적 체력(붕괴 순서 관점) — 이그전: 이익 빈약·먼미래 이익=먼저 붕괴 / 증명된 이익=생존
+    lop=op[-1] if op else None; lni=ni[-1] if ni else None
+    omar=(op[-1]/rev[-1]*100.0) if (op and rev and op[-1] and rev[-1]) else None
+    posy=sum(1 for v in op if v and v>0) if op else 0; toty=sum(1 for v in op if v is not None) if op else 0
+    profitable=(lop is not None and lop>0) and (lni is not None and lni>0)
+    if not op: res_state="-"; res_txt="재무 데이터 부족"
+    elif profitable and (per is not None): res_state="실적 증명형 (방어적)"; res_txt="흑자+이익 검증 → 사이클 후반에도 비교적 오래 버티는 '마지막 생존' 후보 특성"
+    elif (lop is not None and lop<=0) or (per is None): res_state="이익 빈약/적자 (취약)"; res_txt="이익이 약하거나 적자 → 금리상승·조정 시 '먼저 무너지는' 그룹(먼 미래 이익주) 특성"
+    else: res_state="중립"; res_txt="흑자이나 이익 체력은 추가 확인 권장"
+    res_tbl=(f"<table class='kpi'><tr><td>최근 영업이익</td><td><b>{fmt(lop,kr)}</b> ({'흑자' if (lop and lop>0) else '적자/-'})</td></tr>"
+             f"<tr><td>최근 순이익</td><td>{fmt(lni,kr)} ({'흑자' if (lni and lni>0) else '적자/-'})</td></tr>"
+             f"<tr><td>영업이익률</td><td>{(f'{omar:.1f}%') if omar is not None else '-'}</td></tr>"
+             f"<tr><td>흑자 연수</td><td>{posy}/{toty}년</td></tr>"
+             f"<tr><td>PER</td><td>{num(per)} ({'있음(이익 검증)' if per is not None else '없음(적자/미미)'})</td></tr>"
+             f"<tr><td>판정</td><td><b>{res_state}</b></td></tr></table>")
+    res_guide=("<div class='note'><b>📖 주도주 붕괴 순서 (이그전)</b><br>"
+               "버블 말기엔 ①<b>이익 빈약·먼 미래 이익</b>(현금흐름 약·고밸류)이 <b>먼저</b> 무너지고 → "
+               "②과도한 Capex 기대주 → ③<b>실적으로 증명된 종목</b>(예: 반도체)이 <b>마지막까지 생존</b>.<br>"
+               f"▸ 이 종목 판정: <b>{res_state}</b> — {res_txt}.</div>")
     fav_btn=(f"<button onclick=\"addFav('{esc(code)}','{esc(name)}')\" style='background:#C9A227'>⭐ 즐겨찾기</button> "
              f"<a class='ex' href='/compare?codes={esc(code)}' style='padding:10px 14px'>🔁 비교</a>")
     sector=esc((info.get("sector") or "")+" · "+(info.get("industry") or ""))
@@ -547,6 +566,7 @@ def analyze():
       <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}{guide}</div>
       <div class='sec'>📉 MDD · 고점 대비 낙폭 (조정 분석)</div><div class='card'>{mdd_tbl}{mdd_chart}{mdd_guide}</div>
       <div class='sec'>📈 상대강도 · 주도주 여부 (vs 지수)</div><div class='card'>{rel_tbl}{rel_guide}</div>
+      <div class='sec'>💪 실적 체력 · 붕괴 취약성 (이익 검증)</div><div class='card'>{res_tbl}{res_guide}</div>
       <div class='sec'>💰 재무 추이 (연간 + 분기)</div><div class='card'>{fin_html}{q_html}</div>
       <div class='note warn'>⚠ 실시간 자동 산출 · 데이터 오류·지연 가능 · <b>투자 권유가 아님</b> · 최종 책임은 투자자 본인.</div>
       <div class='foot'>주식 분석 웹앱 · {esc(code)} · {dt.date.today()}</div>
