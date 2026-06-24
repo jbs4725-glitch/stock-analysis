@@ -155,6 +155,14 @@ def get_prices(code,ma,months):
     ok=~np.isnan(mm)
     return d[ok],p[ok],mm[ok],dp[ok]
 
+def zone_info(v):
+    """이격도 구간(라벨, 글자색, 배경색) — KOSPI 이격도 트래커 4구간."""
+    if v>=130: return "과열","#C0392B","#FDEEEC"
+    if v>=120: return "경계","#E67E00","#FBE9D8"
+    if v>=105: return "정상","#1E7E45","#E8F5E9"
+    if v>=95:  return "중립","#5B6B7C","#EEF3F9"
+    return "과열해소","#1565C0","#E7F0FB"
+
 def fig_disparity(code,ma,d,p,mm,dp,name):
     fig=make_subplots(specs=[[{"secondary_y":True}]])
     unit="원" if is_kr(code) else "$"
@@ -175,6 +183,11 @@ def fig_disparity(code,ma,d,p,mm,dp,name):
     fig.update_yaxes(title_text="이격도%",secondary_y=True,showgrid=False,zeroline=False,
                      title_font=dict(size=12,color="#E67E00"),tickfont=dict(size=11,color="#E67E00"),
                      range=[lo2-pad,hi2+pad])
+    # 구간 밴드 음영(과열/경계/정상/과열해소) — 보이는 범위에서만 표시
+    for y0,y1,fc in [(130,hi2+pad,"rgba(192,57,43,0.10)"),(120,130,"rgba(230,126,0,0.10)"),
+                     (105,120,"rgba(30,126,69,0.08)"),(lo2-pad,105,"rgba(21,101,192,0.08)")]:
+        if y1>y0:
+            fig.add_hrect(y0=y0,y1=y1,fillcolor=fc,line_width=0,secondary_y=True,layer="below")
     fig.add_hline(y=100,line=dict(color="#8A97A6",width=1.4,dash="dash"),secondary_y=True,
                   annotation_text="100=이평선",annotation_position="top left",
                   annotation_font=dict(size=10,color="#5B6B7C"))
@@ -466,15 +479,17 @@ def analyze():
     mc=info.get("marketCap");per=info.get("trailingPE");fper=info.get("forwardPE");pbr=info.get("priceToBook")
     hi=info.get("fiftyTwoWeekHigh");lo=info.get("fiftyTwoWeekLow");tgt=info.get("targetMeanPrice");dy=info.get("dividendYield")
     px=info.get("currentPrice") or info.get("regularMarketPrice") or cur
-    kpi=f"""<table class='kpi'>
-      <tr><td>현재가</td><td>{px:,.0f}{unit}</td></tr>
-      <tr><td>시가총액</td><td>{fmt(mc,kr)}</td></tr>
-      <tr><td>PER (후행/선행)</td><td>{num(per)} / {num(fper)}</td></tr>
-      <tr><td>PBR</td><td>{num(pbr)}</td></tr>
-      <tr><td>52주 고/저</td><td>{num(hi)} / {num(lo)}</td></tr>
-      <tr><td>평균 목표주가</td><td>{(f'{tgt:,.0f}'+unit) if tgt else '- (미제공)'}</td></tr>
-      <tr><td>배당수익률</td><td>{(f'{dy*100:.2f}%') if dy else '-'}</td></tr>
-      <tr><td>{ma}일 이격도</td><td><b>{curdisp:.1f}%</b></td></tr></table>"""
+    krows=[("현재가",f"{px:,.0f}{unit}")]
+    if mc: krows.append(("시가총액",fmt(mc,kr)))
+    if (per is not None) and (fper is not None): krows.append(("PER (후행/선행)",f"{num(per)} / {num(fper)}"))
+    elif per is not None: krows.append(("PER",num(per)))
+    elif fper is not None: krows.append(("PER (선행)",num(fper)))
+    if pbr is not None: krows.append(("PBR",num(pbr)))
+    if hi and lo: krows.append(("52주 고/저",f"{num(hi)} / {num(lo)}"))
+    if tgt: krows.append(("평균 목표주가",f"{tgt:,.0f}{unit}"))
+    if dy: krows.append(("배당수익률",f"{dy*100:.2f}%"))
+    krows.append((f"{ma}일 이격도",f"<b>{curdisp:.1f}%</b>"))
+    kpi="<table class='kpi'>"+"".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k,v in krows)+"</table>"
     # 재무표/차트
     def fin_rows(labels,r,o,n,unit_label,yoy_lag=0):
         def yoy(i):
@@ -509,6 +524,22 @@ def analyze():
            "▸ 막대 <b style='color:#1A8C7A'>100 아래(청록)</b> = 평균보다 <b>쌈</b> → <b>침체·저평가</b> 가능<br>"
            f"현재 <b style='font-size:15px'>{cd_:.1f}%</b> → <b>{dstate}</b> · 최근 {months}개월 중 <b>상위 {top:.0f}%</b><br>"
            "<span class='muted'>※ 구간(코스피 50일 기준): <b>≥130 과열</b> · 120~130 경계 · 105~120 정상 · <b>≤105 과열해소(기회)</b>. 개별종목은 '상위%' 병행 판단.</span></div>")
+    zlab,zc,zbg=zone_info(cd_)
+    ig_badge=(f"<div style='background:{zbg};border-left:4px solid {zc};border-radius:8px;padding:9px 12px;margin-bottom:8px'>"
+              f"<span style='font-size:16px;font-weight:bold;color:{zc}'>현재 이격도 {cd_:.1f}% · {zlab}</span> "
+              f"<span class='muted'>(최근 {months}개월 상위 {top:.0f}%)</span></div>")
+    chips=("<div style='display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 2px'>"
+           "<span style='background:#E7F0FB;color:#1565C0;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:bold'>≤105 과열해소</span>"
+           "<span style='background:#E8F5E9;color:#1E7E45;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:bold'>105~120 정상</span>"
+           "<span style='background:#FBE9D8;color:#E67E00;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:bold'>120~130 경계</span>"
+           "<span style='background:#FDEEEC;color:#C0392B;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:bold'>≥130 과열</span></div>")
+    nrec=min(8,len(d)); rrows=""
+    for i in range(len(d)-1,len(d)-1-nrec,-1):
+        zl,zcc,_=zone_info(float(dp[i]))
+        rrows+=(f"<tr><td>{str(d[i])[:10]}</td><td>{p[i]:,.0f}</td><td>{mm[i]:,.0f}</td>"
+                f"<td><b>{dp[i]:.1f}%</b></td><td style='color:{zcc};font-weight:bold'>{zl}</td></tr>")
+    recent_tbl=(f"<div class='sec' style='font-size:13px;margin:14px 0 6px'>최근 기록</div>"
+                f"<table><tr><th>날짜</th><th>종가</th><th>{ma}일선</th><th>이격도</th><th>구간</th></tr>{rrows}</table>")
     # MDD(고점 대비 낙폭)
     parr=np.asarray(p,dtype=float); pk=np.maximum.accumulate(parr); ddv=(parr/pk-1.0)*100.0
     cur_dd=float(ddv[-1]); max_dd=float(ddv.min()); prev_peak=float(pk[-1])
@@ -600,7 +631,7 @@ def analyze():
       <div class='card' style='text-align:center'>{fav_btn}</div>
       <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}</div>
       <div class='sec'>🚨 붕괴·조정 경고 신호 (종합)</div><div class='card'>{sig_box}{sig_tbl}{sig_guide}</div>
-      <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}{guide}</div>
+      <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{ig_badge}{chart}{chips}{recent_tbl}{guide}</div>
       <div class='sec'>📉 MDD · 고점 대비 낙폭 (조정 분석)</div><div class='card'>{mdd_tbl}{mdd_chart}{mdd_guide}</div>
       <div class='sec'>📈 상대강도 · 주도주 여부 (vs 지수)</div><div class='card'>{rel_tbl}{rel_guide}</div>
       <div class='sec'>💪 실적 체력 · 붕괴 취약성 (이익 검증)</div><div class='card'>{res_tbl}{res_guide}</div>
