@@ -498,18 +498,17 @@ def analyze():
     # 이격도 해석(상태 + 종목 자체 이력 백분위)
     cd_=curdisp
     dparr=np.asarray(dp,dtype=float); top=float((dparr>cd_).mean()*100.0)  # 현재보다 높았던 비율=상위%
-    if cd_>=110: dstate="강한 과열권 (평균보다 많이 비쌈)"
-    elif cd_>=105: dstate="과열 경향"
-    elif cd_>=95: dstate="안정권 (평균 부근)"
-    elif cd_>=90: dstate="침체 경향"
-    else: dstate="강한 침체권 (저평가 가능)"
+    if cd_>=130: dstate="과열권 (130%↑) — 패닉바잉 자제"
+    elif cd_>=120: dstate="경계 (120~130%) — 분할 익절·속도조절"
+    elif cd_>=105: dstate="정상 범위 (105~120%) — 추세추종 유효"
+    elif cd_>=95: dstate="중립 (평균 부근)"
+    else: dstate="과열해소·침체 (저평가 가능) — 패닉셀링 자제"
     guide=("<div class='note'><b>📖 이격도 쉽게 보는 법</b><br>"
            f"<b>이격도 = 주가 ÷ {ma}일 이동평균 × 100</b> · <b>100</b>이면 주가가 이평선과 같음.<br>"
            "▸ 막대 <b style='color:#E67E00'>100 위(주황)</b> = 평균보다 <b>비쌈</b> → 단기 <b>과열</b><br>"
            "▸ 막대 <b style='color:#1A8C7A'>100 아래(청록)</b> = 평균보다 <b>쌈</b> → <b>침체·저평가</b> 가능<br>"
-           "▸ 100에서 많이 벗어날수록 평균 회귀 힘↑ (적정 폭은 종목마다 다름)<br>"
            f"현재 <b style='font-size:15px'>{cd_:.1f}%</b> → <b>{dstate}</b> · 최근 {months}개월 중 <b>상위 {top:.0f}%</b><br>"
-           "<span class='muted'>※ 참고(이그전): 코스피 50일 기준 130%↑ 과열·105%↓ 과열해소. 개별종목은 위 '상위%'로 과열 정도 판단.</span></div>")
+           "<span class='muted'>※ 구간(코스피 50일 기준): <b>≥130 과열</b> · 120~130 경계 · 105~120 정상 · <b>≤105 과열해소(기회)</b>. 개별종목은 '상위%' 병행 판단.</span></div>")
     # MDD(고점 대비 낙폭)
     parr=np.asarray(p,dtype=float); pk=np.maximum.accumulate(parr); ddv=(parr/pk-1.0)*100.0
     cur_dd=float(ddv[-1]); max_dd=float(ddv.min()); prev_peak=float(pk[-1])
@@ -563,6 +562,34 @@ def analyze():
                "버블 말기엔 ①<b>이익 빈약·먼 미래 이익</b>(현금흐름 약·고밸류)이 <b>먼저</b> 무너지고 → "
                "②과도한 Capex 기대주 → ③<b>실적으로 증명된 종목</b>(예: 반도체)이 <b>마지막까지 생존</b>.<br>"
                f"▸ 이 종목 판정: <b>{res_state}</b> — {res_txt}.</div>")
+    # 🚨 붕괴·조정 경고 신호 감지(종합 체크리스트)
+    pa=np.asarray(p,dtype=float); rsi_v=None
+    if len(pa)>15:
+        dlt=np.diff(pa); g=np.clip(dlt,0,None); l=np.clip(-dlt,0,None)
+        ag=float(g[-14:].mean()); al=float(l[-14:].mean()); rsi_v=100.0 if al==0 else 100-100/(1+ag/al)
+    dead=(float(pa[-20:].mean())<float(pa[-60:].mean())) if len(pa)>=60 else None
+    dpk=float(dparr.max()); ppk=float(pa.max())
+    momo=bool((pa[-1]/ppk>=0.97) and (dpk>0 and cd_/dpk<=0.90))
+    vuln=("취약" in res_state)
+    sig=[("이격도 과열 (≥130% 또는 상위5%)",(cd_>=130 or top<=5),f"이격도 {cd_:.1f}% · 상위 {top:.0f}%"),
+         ("경계 구간 (이격도 120~130%)",(120<=cd_<130),f"이격도 {cd_:.1f}%"),
+         ("이격도 모멘텀 둔화 (가격↑·이격도↓)",momo,"가격 고점 부근인데 이격도는 약화" if momo else "해당 없음"),
+         ("조정 진입 (고점대비 -10%↓)",(cur_dd<=-10),f"현재 낙폭 {cur_dd:.1f}%"),
+         ("큰 조정 (고점대비 -15%↓)",(cur_dd<=-15),f"현재 낙폭 {cur_dd:.1f}%")]
+    if dead is not None: sig.append(("데드크로스 (20일선<60일선)",bool(dead),"단기<장기(하락 압력)" if dead else "정배열"))
+    if rsi_v is not None: sig.append(("RSI 과매수 (≥70)",(rsi_v>=70),f"RSI {rsi_v:.0f}"))
+    sig.append(("실적 취약 + 과열 (붕괴 1차군 특성)",(vuln and (cd_>=120 or top<=20)),res_state))
+    nrisk=sum(1 for _,b,_ in sig if b); ntot=len(sig)
+    if nrisk<=1: risk="정상/안전"; rdot="🟢"; rbar="#1E7E45"; rbg="#E8F5E9"
+    elif nrisk<=3: risk="주의"; rdot="🟡"; rbar="#E6A700"; rbg="#FFF7E6"
+    elif nrisk<=5: risk="경계"; rdot="🟠"; rbar="#E67E00"; rbg="#FBE9D8"
+    else: risk="위험"; rdot="🔴"; rbar="#C0392B"; rbg="#FDEEEC"
+    srows="".join(f"<tr><td style='text-align:center'>{'🔴' if b else '🟢'}</td><td>{lab}</td><td class='muted'>{det}</td></tr>" for lab,b,det in sig)
+    sig_box=(f"<div style='background:{rbg};border-left:4px solid {rbar};border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+             f"<span style='font-size:16px;font-weight:bold'>{rdot} 위험 신호 {nrisk}/{ntot}개 발생 → {risk}</span></div>")
+    sig_tbl=f"<table><tr><th>판정</th><th>신호</th><th>현황</th></tr>{srows}</table>"
+    sig_guide=("<div class='note warn'>이격도(과열/경계)·MDD(조정)·추세(데드크로스)·RSI·실적취약을 종합한 <b>참고 체크리스트</b>입니다. "
+               "신호가 많을수록 단기 조정 위험↑. 단, 강세장에선 과열이 지속될 수 있어 <b>'매도 신호'가 아니라 위험관리용</b>으로 보세요.</div>")
     fav_btn=(f"<button onclick=\"addFav('{esc(code)}','{esc(name)}')\" style='background:#C9A227'>⭐ 즐겨찾기</button> "
              f"<a class='ex' href='/compare?codes={esc(code)}' style='padding:10px 14px'>🔁 비교</a>")
     sector=esc((info.get("sector") or "")+" · "+(info.get("industry") or ""))
@@ -572,6 +599,7 @@ def analyze():
     <div class='wrap'>{form_html(code,ma,months)}
       <div class='card' style='text-align:center'>{fav_btn}</div>
       <div class='sec'>■ 핵심 요약 (실시간)</div><div class='card'>{kpi}</div>
+      <div class='sec'>🚨 붕괴·조정 경고 신호 (종합)</div><div class='card'>{sig_box}{sig_tbl}{sig_guide}</div>
       <div class='sec'>📊 이격도 차트 ({ma}일선, 최근 {months}개월)</div><div class='card'>{chart}{guide}</div>
       <div class='sec'>📉 MDD · 고점 대비 낙폭 (조정 분석)</div><div class='card'>{mdd_tbl}{mdd_chart}{mdd_guide}</div>
       <div class='sec'>📈 상대강도 · 주도주 여부 (vs 지수)</div><div class='card'>{rel_tbl}{rel_guide}</div>
