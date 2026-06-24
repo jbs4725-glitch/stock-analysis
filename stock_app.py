@@ -166,39 +166,29 @@ def zone_info(v):
 def fig_disparity(code,ma,d,p,mm,dp,name):
     fig=make_subplots(specs=[[{"secondary_y":True}]])
     unit="원" if is_kr(code) else "$"
-    # 이격도='막대'(100 기준 anchored): 위=과열(주황)·아래=침체(청록). 주가·이평선 '뒤'(먼저 add → 뒤로).
-    dev=[float(v)-100 for v in dp]
-    bcol=["#FB8C00" if v>=0 else "#26A69A" for v in dev]
-    fig.add_trace(go.Bar(x=d,y=dev,base=100,name="이격도(막대)",marker_color=bcol,opacity=0.5,
-                  marker_line_width=0,customdata=dp,
-                  hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{customdata:.1f}%<extra></extra>"),secondary_y=True)
-    fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일선",line=dict(color="#1565C0",width=2.4),
+    # KB증권/이그전 스타일: 이격도=금색 막대(우축, 0기준) / N일선=회색선 / 주가=검정선 (선이 막대 위)
+    fig.add_trace(go.Bar(x=d,y=dp,name="이격도(%, 우)",marker_color="#EBB000",opacity=0.85,
+                  marker_line_width=0,
+                  hovertemplate="%{x|%Y-%m-%d}<br>이격도 %{y:.1f}%<extra></extra>"),secondary_y=True)
+    fig.add_trace(go.Scatter(x=d,y=mm,name=f"{ma}일선",line=dict(color="#9AA7B5",width=2.6),
                   hovertemplate="%{x|%Y-%m-%d}<br>"+f"{ma}일선 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
-    fig.add_trace(go.Scatter(x=d,y=p,name=f"주가({unit})",line=dict(color="#111111",width=2.4),
+    fig.add_trace(go.Scatter(x=d,y=p,name="주가",line=dict(color="#111111",width=2.0),
                   hovertemplate="%{x|%Y-%m-%d}<br>"+f"주가 %{{y:,.0f}}{unit}<extra></extra>"),secondary_y=False)
     if p.max()/max(p.min(),1)>3: fig.update_yaxes(type="log",secondary_y=False)
-    lo2=min(float(dp.min()),100.0); hi2=max(float(dp.max()),100.0); pad=max(2.0,(hi2-lo2)*0.12)
+    dmin=float(dp.min()); dmax=float(dp.max())
+    lo2=float(np.floor((dmin-3)/5)*5); hi2=float(np.ceil((dmax+3)/5)*5)
     fig.update_yaxes(title_text=f"주가({unit})",secondary_y=False,showgrid=True,gridcolor="#E6EBF1",
                      title_font=dict(size=12),tickfont=dict(size=11))
     fig.update_yaxes(title_text="이격도%",secondary_y=True,showgrid=False,zeroline=False,
-                     title_font=dict(size=12,color="#E67E00"),tickfont=dict(size=11,color="#E67E00"),
-                     range=[lo2-pad,hi2+pad])
-    # 구간 밴드 음영(과열/경계/정상/과열해소) — 보이는 범위에서만 표시
-    for y0,y1,fc in [(130,hi2+pad,"rgba(192,57,43,0.10)"),(120,130,"rgba(230,126,0,0.10)"),
-                     (105,120,"rgba(30,126,69,0.08)"),(lo2-pad,105,"rgba(21,101,192,0.08)")]:
-        if y1>y0:
-            fig.add_hrect(y0=y0,y1=y1,fillcolor=fc,line_width=0,secondary_y=True,layer="below")
-    fig.add_hline(y=100,line=dict(color="#8A97A6",width=1.4,dash="dash"),secondary_y=True,
-                  annotation_text="100=이평선",annotation_position="top left",
-                  annotation_font=dict(size=10,color="#5B6B7C"))
-    fig.add_annotation(x=d[-1],y=float(dp[-1]),yref="y2",text=f"현재 {float(dp[-1]):.1f}%",showarrow=True,
-                  arrowhead=2,arrowcolor="#E67E00",ax=-34,ay=-22,font=dict(size=11,color="#E67E00"),
-                  bgcolor="rgba(255,255,255,0.82)")
+                     title_font=dict(size=12,color="#B9860B"),tickfont=dict(size=11,color="#B9860B"),
+                     range=[lo2,hi2])
+    if lo2<=100<=hi2:
+        fig.add_hline(y=100,line=dict(color="#C9B27A",width=1,dash="dot"),secondary_y=True)
     fig.update_xaxes(tickfont=dict(size=11))
-    fig.update_layout(title=dict(text=f"{name} · {ma}일 이격도 (막대 100기준: 위=과열·아래=침체)",font=dict(size=14)),
-                      template="plotly_white",height=440,margin=dict(l=6,r=6,t=60,b=6),
+    fig.update_layout(title=dict(text=f"{name} · {ma}일 이격도",font=dict(size=14)),
+                      template="plotly_white",height=440,margin=dict(l=6,r=6,t=56,b=6),
                       legend=dict(orientation="h",y=1.13,x=0.5,xanchor="center",font=dict(size=12)),
-                      hovermode="x unified",bargap=0.04,
+                      hovermode="x unified",bargap=0.12,
                       font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif",size=12))
     return fig.to_html(include_plotlyjs="cdn",full_html=False,
                        config={"displayModeBar":False,"displaylogo":False,"responsive":True})
